@@ -31,8 +31,12 @@ if (!apiKey || apiKey.indexOf('YOUR_') === 0) {  //  Halt if we see YOUR_API_KEY
 }
 let client = null;  //  Ubidots API client.
 
-//  Map Sigfox device ID to Ubidots datasource, variables, details:
-//  '2C30EB' => { datasource: Datasource for "Sigfox Device 2C30EB", variables, details }
+//  Map Sigfox device ID to Ubidots datasource, variables:
+//  '2C30EB' => {
+//    datasource: Datasource for "Sigfox Device 2C30EB",
+//    variables: {
+//      lig: { variable record for 'lig' }, ...
+//  }}
 //  datasource should be present after init().  variables and details are loaded upon reference to the device.
 let allDevices = {};
 let allDatasources = null;    //  Array of all Ubidots datasources i.e. devices.
@@ -92,9 +96,31 @@ function processDatasources(req, allDatasources0) {
   }
 }
 
-function getVariables(req, device) {
+/* A variable record looks like: {
+  "id": "5933e6977625426a5efbaaef",
+  "name": "lig",
+  "icon": "cloud-upload",
+  "unit": null,
+  "label": "lig",
+  "datasource": {
+  "id": "5933e6897625426a4f6efd1b",
+    "name": "Sigfox Device 2C30EB",
+    "url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b"
+  },
+  "url": "http://things.ubidots.com/api/v1.6/variables/5933e6977625426a5efbaaef",
+  "description": null,
+  "properties": {},
+  "tags": [],
+  "values_url": "http://things.ubidots.com/api/v1.6/variables/5933e6977625426a5efbaaef/values",
+  "created_at": "2017-06-04T10:53:11.037",
+  "last_value": {},
+  "last_activity": null,
+  "type": 0,
+  "derived_expr": "" } */
+
+function getVariablesByDevice(req, device) {
   //  Fetch the Ubidots variables for the specified Sigfox device ID.
-  //  Returns a promise.
+  //  Returns a promise for the variables map (name => variable record).
   const dev = allDevices[device];
   if (!dev || !dev.datasource) {
     return Promise.resolve(null);  //  No such device.
@@ -107,10 +133,40 @@ function getVariables(req, device) {
   const datasource = client.getDatasource(datasourceId);
   return promisfy(datasource.getVariables.bind(datasource))
     .then(res => res.results)
-    .then((res) => { dev.variables = res; return res; })
+    .then((res) => {
+      //  Index the variables by name.
+      const vars = {};
+      for (const v of res) {
+        const name = v.name;
+        vars[name] = v;
+      }
+      dev.variables = vars;
+      return vars;
+    })
     .catch((error) => { throw error; });
 }
 
+function setVariable(req, device, varname, value) {
+  //  Set the Ubidots variable for the specified Sigfox device ID.
+  //  Returns a promise.
+  const dev = allDevices[device];
+  if (!dev || !dev.datasource) return Promise.resolve(null);  //  No such device.
+  const promises = [];
+  //  Load the variables if not loaded.
+  if (!dev.variables) promises.push(getVariablesByDevice(req, device));
+  return Promise.all(promises)
+    .then(() => {
+      //  Fetch the var by name.
+      const v = dev.variables[varname];
+      if (!v) return null;  //  No such variable.
+      const varid = v.id;
+      const clientvar = client.getVariable(varid);
+      return clientvar.saveValue(value);
+    })
+    .catch((error) => { throw error; });
+}
+
+/* Not used: Replicates the datasource already loaded.
 function getDetails(req, device) {
   //  Fetch the Ubidots details for the specified Sigfox device ID.
   //  Returns a promise.
@@ -127,7 +183,7 @@ function getDetails(req, device) {
   return promisfy(datasource.getDetails.bind(datasource))
     .then((res) => { dev.details = res; return res; })
     .catch((error) => { throw error; });
-}
+} */
 
 function init(req) {
   //  This function is called to initialise the Ubidots API client.
@@ -144,8 +200,8 @@ function init(req) {
       allDatasources = res;
       processDatasources(req, allDatasources);
     })
-    .then(() => getVariables(req, '2C30EB'))
-    .then(() => getDetails(req, '2C30EB'))
+    // .then(() => getVariablesByDevice(req, '2C30EB'))
+    .then(() => setVariable(req, '2C30EB', 'lig', 321))
     .then(debug)
     /*
     .then(res => client.getVariable(variableName))
