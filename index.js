@@ -29,8 +29,10 @@ if (!apiKey || apiKey.indexOf('YOUR_') === 0) {  //  Halt if we see YOUR_API_KEY
   throw new Error('ubidots-api-key is missing from config.json');
 }
 let client = null;  //  Ubidots API client.
+let allDatasources = null;  //  Array of all Ubidots data sources e.g. devices.
+let allVariables = null;    //  Array of all Ubidots variables per data source.
 
-function debug(res) {
+function debug(res, func) {
   //  Debug the result of a promise.  Return the same promise to the next in chain.
   console.log(JSON.stringify({ res }, null, 2));
   debugger;
@@ -44,6 +46,30 @@ function promisfy(func) {
     .catch((error) => { throw error; });
 }
 
+/* allDatasources contains
+[
+  {
+    "id": "5933e6897625426a4f6efd1b",
+    "owner": "http://things.ubidots.com/api/v1.6/users/26539",
+    "label": "sigfox-device-2c30eb",
+    "parent": null,
+    "name": "Sigfox Device 2C30EB",
+    "url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b",
+    "context": {},
+    "tags": [],
+    "created_at": "2017-06-04T10:52:57.172",
+    "variables_url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b/variables",
+    "number_of_variables": 3,
+    "last_activity": null,
+    "description": null,
+    "position": null
+  }
+] */
+
+function processDatasources(req, allDatasources) {
+
+}
+
 function init(req) {
   //  This function is called to initialise the Ubidots API client.
   //  If already initialised, quit.  Returns a promise for the client.
@@ -51,10 +77,8 @@ function init(req) {
   const datasourceName = '???';
   const variableName = '???';
   const newValue = 123;
-  let allDatasources = null;
   let datasource = null;
   let datasourceDetails = null;
-  let allVariables = null;
   let variable = null;
   let variableDetails = null;
   let value = null;
@@ -63,16 +87,15 @@ function init(req) {
   client = ubidots.createClient(apiKey);
   //  Must bind so that "this" is correct.
   return promisfy(client.auth.bind(client))
-    .then(debug)
     .then(res => promisfy(client.getDatasources.bind(client)))
+    .then(res => { allDatasources = res.results; })
     .then(debug)
-    .then(res => { allDatasources = res; })
     .then(res => client.getDatasource(() => datasourceName))
     .then(debug)
     .then(res => { datasource = res; })
     .then(res => promisfy(datasource.getVariables.bind(datasource)))
+    .then(res => { allVariables = res.results; })
     .then(debug)
-    .then(res => { allVariables = res; })
     .then(res => promisfy(datasource.getDetails.bind(datasource)))
     .then(debug)
     .then(res => { datasourceDetails = res; })
