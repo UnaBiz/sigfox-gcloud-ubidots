@@ -210,7 +210,8 @@ function task(req, device, body, msg) {
           context: Object.assign({}, body),  //  Entire message.
         };
         if (value.context[key]) delete value.context[key];
-        setVariable(req, device, key, value);
+        const value2 = body[key];
+        setVariable(req, device, key, value2);
       }
       return 'OK';
     })
