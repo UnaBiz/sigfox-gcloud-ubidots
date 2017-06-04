@@ -203,35 +203,7 @@ function init(req) {
     // .then(() => getVariablesByDevice(req, '2C30EB'))
     .then(() => setVariable(req, '2C30EB', 'lig', 321))
     .then(debug)
-    /*
-    .then(res => client.getVariable(variableName))
-    .then(debug)
-    .then(res => { variable = res; })
-    .then(res => promisfy(variable.getDetails.bind(variable)))
-    .then(debug)
-    .then(res => { variableDetails = res; })
-    .then(res => promisfy(variable.getValues.bind(variable)))
-    .then(debug)
-    .then(res => { value = res; })
-    .then(res => variable.saveValue(newValue))
-    .then(debug)
-    */
     .catch((error) => { throw error; });
-
-  /*
-   client.auth(() => {
-    const v = this.getVariable('xxxxxxx');
-
-    v.getDetails((err, details) => {
-      console.log(details);
-    });
-
-    v.saveValue(22);
-
-    v.getValues((err, data) => {
-      console.log(data.results);
-    });
-    */
 }
 init({});
 
