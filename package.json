@@ -29,13 +29,14 @@
     "@google-cloud/debug-agent": "^1.0.0",
     "@google-cloud/error-reporting": "^0.1.1",
     "@google-cloud/logging": "^1.0.0",
-    "@google-cloud/trace-agent": "^1.1.0",
     "@google-cloud/pubsub": "0.10.0",
+    "@google-cloud/trace-agent": "^1.1.0",
     "googleapis": "^19.0.0",
-    "sigfox-gcloud": ">=0.0.26",
-    "safe-buffer": "5.0.1",
+    "json-stringify-safe": "^5.0.1",
     "node-fetch": "^1.6.3",
-    "json-stringify-safe": "^5.0.1"
+    "safe-buffer": "5.0.1",
+    "sigfox-gcloud": ">=0.0.26",
+    "ubidots": "0.0.4"
   },
   "devDependencies": {
     "chai": "^3.5.0",

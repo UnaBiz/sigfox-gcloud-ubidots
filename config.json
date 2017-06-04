@@ -1,0 +1,4 @@
+{
+  "comment": "Configuration file for Ubidots adapter for sigfox-gcloud",
+  "ubidots-api-key": "YOUR_UBIDOTS_API_KEY"
+}
