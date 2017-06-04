@@ -115,8 +115,20 @@ Create a file named `config.json` in the `sigfox-gcloud-ubidots` folder with the
     [<kbd><img src="https://storage.googleapis.com/unabiz-media/sigfox-gcloud/gcloud-stackdriver.png" width="1024"></kbd>](https://storage.googleapis.com/unabiz-media/sigfox-gcloud/gcloud-stackdriver.png)
 
 #  Demo    
+
+1. To send messages from a Sigfox device into Ubidots, you may use this Arduino sketch:
+
+    https://github.com/UnaBiz/unabiz-arduino/blob/master/examples/send-light-level/send-light-level.ino
     
-1. To test the structured message decoding, send a Sigfox message
+    The sketch sends 3 field names and field values, packed into a single structured message:
+        
+    ```
+    ctr (counter)
+    lig (light level)
+    tmp (temperature)        
+    ```
+    
+1. Alternatively, you may test by sending a Sigfox message
     from your Sigfox device with the `data` field set to:
 
     ```
