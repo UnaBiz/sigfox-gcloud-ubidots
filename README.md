@@ -13,6 +13,15 @@ git clone https://github.com/UnaBiz/sigfox-gcloud-ubidots.git
 cd sigfox-gcloud-ubidots
 ```
 
+Create a file named `config.json` in the `sigfox-gcloud-ubidots` folder with the contents below (replace `YOUR_UBIDOTS_API_KEY` by your Ubidots API Key)
+
+```json
+{
+  "comment": "Configuration file for Ubidots adapter for sigfox-gcloud",
+  "ubidots-api-key": "YOUR_UBIDOTS_API_KEY"
+}
+```
+
 ### Setting up Google Cloud
 
 1.  Install `sigfox-gcloud` with the base modules (exclude optional modules):
@@ -36,7 +45,7 @@ cd sigfox-gcloud-ubidots
     
     The PubSub queues will be used as follows:
     - `sigfox.devices.sendToUbidots`: The queue that will receive Sigfox messages for all devices
-        and will be sent to Ubidots
+        and will be sent to Ubidots    
     
 1. Deploy all the included Cloud Functions (including the demo functions) with the `deployall.sh` script:
 
