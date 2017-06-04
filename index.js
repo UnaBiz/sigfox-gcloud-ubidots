@@ -39,8 +39,11 @@ function debug(res) {
 
 function promisfy(func) {
   //  Convert the callback-style function in func and return as a promise.
+  //  func is a function of a function, i.e. func = (() => (err, res) => { ... })
+  //  because we need the lazy evaluation.
+  const actualFunc = func();
   return new Promise((resolve, reject) =>
-    func((err, res) => (err ? reject(err) : resolve(res))))
+    actualFunc((err, res) => (err ? reject(err) : resolve(res))))
     .catch((error) => { throw error; });
 }
 
@@ -50,36 +53,37 @@ function init(req) {
   if (client) return Promise.resolve(client);
   const datasourceName = '???';
   const variableName = '???';
-  const value = 123;
+  const newValue = 123;
   let allDatasources = null;
   let datasource = null;
   let allVariables = null;
   let variable = null;
   let details = null;
+  let value = null;
 
   //  Create the Ubidots API client and authenticate with Ubidots.
   client = ubidots.createClient(apiKey);
-  return promisfy(client.auth)
+  return promisfy(() => client.auth)
     .then(debug)
-    .then(res => promisfy(client.getDatasources))
+    .then(res => promisfy(() => client.getDatasources))
     .then(debug)
     .then(res => { allDatasources = res; })
-    .then(res => client.getDatasource(datasourceName))
+    .then(res => client.getDatasource(() => datasourceName))
     .then(debug)
     .then(res => { datasource = res; })
-    .then(res => promisfy(datasource.getVariables))
+    .then(res => promisfy(() => datasource.getVariables))
     .then(debug)
     .then(res => { allVariables = res; })
     .then(res => client.getVariable(variableName))
     .then(debug)
     .then(res => { variable = res; })
-    .then(res => promisfy(datasource.getDetails))
+    .then(res => promisfy(() => datasource.getDetails))
     .then(debug)
     .then(res => { details = res; })
-    .then(res => promisfy(variable.getValues))
+    .then(res => promisfy(() => variable.getValues))
     .then(debug)
-    .then(res => { values = res; })
-    .then(res => variable.saveValue(value))
+    .then(res => { value = res; })
+    .then(res => variable.saveValue(newValue))
     .then(debug)
     .catch((error) => { throw error; });
 
