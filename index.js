@@ -187,6 +187,10 @@ function task(req, device, body, msg) {
   //  variables, and populate the values.  All datasources, variables
   //  must be created in advance.
 
+  //  Skip duplicate messages.
+  if (body.duplicate === true || body.duplicate === 'true') {
+    return Promise.resolve(msg);
+  }
   //  Load the Ubidots datasources if not done already.
   return init(req)
     //  Load the Ubidots variables for the device if not loaded already.
