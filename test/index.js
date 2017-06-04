@@ -1,15 +1,13 @@
-//  Unit Test for decodeStructuredMessage
-
+//  Unit Test
 /* global describe:true, it:true, beforeEach:true */
 /* eslint-disable import/no-extraneous-dependencies, no-console, no-unused-vars, one-var,
  no-underscore-dangle */
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
-const common = require('../../index');
+const common = require('sigfox-gcloud');
 const moduleTested = require('../index');  //  Module to be tested, i.e. the parent module.
-const structuredMessage = require('../structuredMessage');  //  Other modules to be tested.
 
-const moduleName = 'decodeStructuredMessage';
+const moduleName = 'sendToUbidots';
 const should = chai.should();
 chai.use(chaiAsPromised);
 
@@ -24,6 +22,9 @@ const testData = {
 };
 const testBody = (timestamp, data) => ({
   data,
+  ctr: 123,
+  lig: 456,
+  tmp: 36.9,
   longPolling: false,
   device: testDevice,
   ack: false,
@@ -88,7 +89,7 @@ function getTestMessage(type) {
   return msg;
 }
 
-describe('decodeStructuredMessage', () => {
+describe(moduleName, () => {
   //  Test every exposed function in the module.
 
   beforeEach(() => {
@@ -97,7 +98,7 @@ describe('decodeStructuredMessage', () => {
     req = {};
   });
 
-  it('should decode structured message with numbers', () => {
+  it('should send Sigfox message to Ubidots', () => {
     //  Every sigfox-gcloud processing step must have a task
     //  function that performs processing and returns a
     //  message for dispatching.
@@ -107,6 +108,7 @@ describe('decodeStructuredMessage', () => {
     const promise = moduleTested.task(req, testDevice, body, msg)
       .then((result) => {
         common.log(req, 'unittest', { result });
+        debugger;
         return result;
       })
       .catch((error) => {
@@ -117,19 +119,7 @@ describe('decodeStructuredMessage', () => {
     ;
     return Promise.all([
       promise,
-      promise.should.eventually.have.deep.property('body.ctr').equals(999),
-      promise.should.eventually.have.deep.property('body.lig').equals(754),
-      promise.should.eventually.have.deep.property('body.tmp').equals(23),
+      // promise.should.eventually.have.deep.property('body.ctr').equals(999),
     ]);
-  });
-
-  it('should decode structured message with text', () => {
-    const data = testData.text;
-    common.log(req, 'unittest', { data });
-    const result = structuredMessage.decodeMessage(data, ['d1', 'd2', 'd3']);
-    common.log(req, 'unittest', { result });
-    result.should.have.property('d1').equals('zoe');
-    result.should.have.property('d2').equals('ell');
-    result.should.have.property('d3').equals('joy');
   });
 });

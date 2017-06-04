@@ -199,10 +199,17 @@ function task(req, device, body, msg) {
       const vars = dev.variables;
       for (const key of Object.keys(body)) {
         if (!vars[key]) continue;
-        setVariable(req, device, key, body[key]);
+        //  value looks like
+        //  {"value": "52.1", "timestamp": 1376056359000,
+        //    "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
+        const value = {
+          value: body[key],
+          timestamp: body.timestamp,  //  Basestation time.
+          context: Object.assign({}, body),  //  Entire message.
+        };
+        if (value.context[key]) delete value.context[key];
+        setVariable(req, device, key, value);
       }
-      // '{"value": "52.1", "timestamp": 1376056359000}'
-      //  {"value": "35.8", "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
       return 'OK';
     })
     //  Return the message for the next processing step.
