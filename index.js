@@ -199,8 +199,10 @@ function task(req, device, body, msg) {
     .then(() => {
       //  Find the datasource record for the Sigfox device.
       const dev = allDevices[device];
-      if (!dev || !dev.datasource) return null;  //  No such device.
-
+      if (!dev || !dev.datasource) {
+        sgcloud.log(req, 'missing_ubidots_device', { device, body, msg });
+        return null;  //  No such device.
+      }
       //  Set the Ubidots timestamp.
       //  For each Sigfox message field, set the value of the Ubidots variable.
       const vars = dev.variables;
