@@ -38,8 +38,7 @@ let client = null;  //  Ubidots API client.
 //      lig: { variable record for 'lig' }, ...
 //  }}
 //  datasource should be present after init().  variables and details are loaded upon reference to the device.
-let allDevices = {};
-let allDatasources = null;    //  Array of all Ubidots datasources i.e. devices.
+const allDevices = {};
 
 function debug(res) {
   //  Debug the result of a promise.  Return the same promise to the next in chain.
@@ -189,6 +188,7 @@ function init(req) {
   //  This function is called to initialise the Ubidots API client.
   //  If already initialised, quit.  Returns a promise for the client.
   if (client) return Promise.resolve(client);
+  let allDatasources = null;    //  Array of all Ubidots datasources i.e. devices.
 
   //  Create the Ubidots API client and authenticate with Ubidots.
   client = ubidots.createClient(apiKey);
