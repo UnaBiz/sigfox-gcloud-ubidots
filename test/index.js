@@ -108,12 +108,10 @@ describe(moduleName, () => {
     const promise = moduleTested.task(req, testDevice, body, msg)
       .then((result) => {
         common.log(req, 'unittest', { result });
-        debugger;
         return result;
       })
       .catch((error) => {
         common.error(req, 'unittest', { error });
-        debugger;
         throw error;
       })
     ;

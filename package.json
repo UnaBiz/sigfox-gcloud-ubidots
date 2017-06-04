@@ -4,7 +4,7 @@
   "description": "sigfox-gcloud adapter for integrating Sigfox devices with Ubidots",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test"
   },
   "keywords": [
     "sigfox",

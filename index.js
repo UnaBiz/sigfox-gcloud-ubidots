@@ -135,7 +135,7 @@ function getVariablesByDevice(req, device) {
       dev.variables = vars;
       return vars;
     })
-    .catch((error) => { throw error; });
+    .catch((error) => { sgcloud.log(req, 'getVariablesByDevice', { error, device }); throw error; });
 }
 
 function setVariable(req, device, varname, value) {
@@ -153,11 +153,12 @@ function setVariable(req, device, varname, value) {
       if (!v) return null;  //  No such variable.
       const varid = v.id;
       const clientvar = client.getVariable(varid);
-      const result = clientvar.saveValue(value);
-      sgcloud.log(req, 'setVariable', { result, varname, value });
-      return result;
+      return new Promise((resolve, reject) =>
+        clientvar.saveValue(value, (err, res) =>
+          (err ? reject(err) : resolve(res))));
     })
-    .catch((error) => { throw error; });
+    .then(result => sgcloud.log(req, 'setVariable', { result, device, varname, value }))
+    .catch((error) => { sgcloud.log(req, 'setVariable', { error, device, varname, value }); throw error; });
 }
 
 function init(req) {
@@ -176,7 +177,7 @@ function init(req) {
       allDatasources = res;
       processDatasources(req, allDatasources);
     })
-    .catch((error) => { throw error; });
+    .catch((error) => { sgcloud.log(req, 'init', { error }); throw error; });
 }
 
 function task(req, device, body, msg) {
@@ -214,14 +215,13 @@ function task(req, device, body, msg) {
           context: Object.assign({}, body),  //  Entire message.
         };
         if (value.context[key]) delete value.context[key];
-        const value2 = body[key];
-        setVariable(req, device, key, value2);
+        setVariable(req, device, key, value);
       }
       return 'OK';
     })
     //  Return the message for the next processing step.
     .then(() => msg)
-    .catch((error) => { throw error; });
+    .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg }); throw error; });
 }
 
 //  End Message Processing Code
