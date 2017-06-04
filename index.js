@@ -153,7 +153,9 @@ function setVariable(req, device, varname, value) {
       if (!v) return null;  //  No such variable.
       const varid = v.id;
       const clientvar = client.getVariable(varid);
-      return clientvar.saveValue(value);
+      const result = clientvar.saveValue(value);
+      sgcloud.log(req, 'setVariable', { result, varname, value });
+      return result;
     })
     .catch((error) => { throw error; });
 }
@@ -204,7 +206,7 @@ function task(req, device, body, msg) {
         //    "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
         const value = {
           value: body[key],
-          timestamp: body.timestamp,  //  Basestation time.
+          timestamp: parseInt(body.timestamp, 10),  //  Basestation time.
           context: Object.assign({}, body),  //  Entire message.
         };
         if (value.context[key]) delete value.context[key];

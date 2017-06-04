@@ -15,8 +15,8 @@ let req = {};
 
 //  Test data
 /* eslint-disable quotes, max-len */
-const testDevice = 'UNITTEST1';
-const testData = {
+const testDevice = '2C30EB';
+const testData = {  //  Structured msgs with numbers and text fields.
   number: '920e06272731741db051e600',
   text: '8013e569a0138c15c013f929',
 };
