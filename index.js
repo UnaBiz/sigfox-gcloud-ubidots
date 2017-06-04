@@ -139,7 +139,9 @@ function getVariablesByDevice(req, device) {
 }
 
 function setVariable(req, device, varname, value) {
-  //  Set the Ubidots variable for the specified Sigfox device ID.
+  //  Set the Ubidots variable for the specified Sigfox device ID.  value looks like
+  //  {"value": "52.1", "timestamp": 1376056359000,
+  //    "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
   //  Returns a promise.
   const dev = allDevices[device];
   if (!dev || !dev.datasource) return Promise.resolve(null);  //  No such device.
@@ -199,6 +201,8 @@ function task(req, device, body, msg) {
         if (!vars[key]) continue;
         setVariable(req, device, key, body[key]);
       }
+      // '{"value": "52.1", "timestamp": 1376056359000}'
+      //  {"value": "35.8", "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
       return 'OK';
     })
     //  Return the message for the next processing step.
