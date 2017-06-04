@@ -15,23 +15,28 @@ cd sigfox-gcloud-ubidots
 
 ### Setting up Google Cloud
 
+1.  Install `sigfox-gcloud` with the base modules (exclude optional modules):
+
+    https://github.com/UnaBiz/sigfox-gcloud/blob/master/README.md
+
 1.  Add the following `sigfox-route` setting to the Google Cloud Project Metadata store.
     This route says that all received Sigfox messages will be processed by the
-    two steps `decodeStructuredMessage` and `logToGoogleSheets`.
+    two steps `decodeStructuredMessage` and `sendToUbidots`.
 
     ```bash
-    gcloud compute project-info add-metadata --metadata=^:^sigfox-route=decodeStructuredMessage,logToGoogleSheets
+    gcloud compute project-info add-metadata --metadata=^:^sigfox-route=decodeStructuredMessage,sendToUbidots
     ```
 
 1. Create the Google PubSub message queues that we will use to route the
    Sigfox messages between the Cloud Functions:
    
     ```bash
-    gcloud beta pubsub topics create sigfox.types.decodeStructuredMessage
+    gcloud beta pubsub topics create sigfox.types.sendToUbidots
     ```
     
     The PubSub queues will be used as follows:
-    - `sigfox.devices.decodeStructuredMessage`: The queue that will receive Sigfox messages for all devices
+    - `sigfox.devices.sendToUbidots`: The queue that will receive Sigfox messages for all devices
+        and will be sent to Ubidots
     
 1. Deploy all the included Cloud Functions (including the demo functions) with the `deployall.sh` script:
 
@@ -58,11 +63,21 @@ cd sigfox-gcloud-ubidots
       The route looks like this: 
 
       ```
-      decodeStructuredMessage, logToGoogleSheets
+      decodeStructuredMessage, sendToUbidots
       ```
 
-    - This route sends the message to functions `decodeStructuredMessage` and `logToGoogleSheets`
-      via the queues `sigfox.types.decodeStructuredMessage` and `sigfox.types.logToGoogleSheets`
+    - This route sends the message to functions `decodeStructuredMessage` and `sendToUbidots`
+      via the queues `sigfox.types.decodeStructuredMessage` and `sigfox.types.sendToUbidots`
+      
+    - `decodeStructuredMessage`decodes the structured fields in the Sigfox message,
+        e.g. `ctr`, `lig`, `tmp`
+     
+    - `sendToUbidots` sends the message to Ubidots by calling the Ubidots API.  It assumes that the Ubidots
+        device is named after the Sigfox device ID, e.g. `Sigfox Device 2C30EB`.  (Last 6 characters must be
+        the Sigfox device ID.)
+        
+    - Each device / datasource must have defined the same fields as those in the structured message
+        e.g. `ctr`, `lig`, `tmp`
 
 1.  See this for the definition of structured messages:
 
@@ -151,7 +166,7 @@ cd sigfox-gcloud-ubidots
     }
     ```
            
-1. The test message sent above will be decoded and displayed in the Google Sheet as 
+1. The test message sent above will be decoded and sent to Ubidots as 
 
     ```
     ctr (counter): 13
