@@ -39,11 +39,8 @@ function debug(res) {
 
 function promisfy(func) {
   //  Convert the callback-style function in func and return as a promise.
-  //  func is a function of a function, i.e. func = (() => (err, res) => { ... })
-  //  because we need the lazy evaluation.
-  const actualFunc = func();
   return new Promise((resolve, reject) =>
-    actualFunc((err, res) => (err ? reject(err) : resolve(res))))
+    func((err, res) => (err ? reject(err) : resolve(res))))
     .catch((error) => { throw error; });
 }
 
@@ -56,31 +53,36 @@ function init(req) {
   const newValue = 123;
   let allDatasources = null;
   let datasource = null;
+  let datasourceDetails = null;
   let allVariables = null;
   let variable = null;
-  let details = null;
+  let variableDetails = null;
   let value = null;
 
   //  Create the Ubidots API client and authenticate with Ubidots.
   client = ubidots.createClient(apiKey);
-  return promisfy(() => client.auth)
+  //  Must bind so that "this" is correct.
+  return promisfy(client.auth.bind(client))
     .then(debug)
-    .then(res => promisfy(() => client.getDatasources))
+    .then(res => promisfy(client.getDatasources.bind(client)))
     .then(debug)
     .then(res => { allDatasources = res; })
     .then(res => client.getDatasource(() => datasourceName))
     .then(debug)
     .then(res => { datasource = res; })
-    .then(res => promisfy(() => datasource.getVariables))
+    .then(res => promisfy(datasource.getVariables.bind(datasource)))
     .then(debug)
     .then(res => { allVariables = res; })
+    .then(res => promisfy(datasource.getDetails.bind(datasource)))
+    .then(debug)
+    .then(res => { datasourceDetails = res; })
     .then(res => client.getVariable(variableName))
     .then(debug)
     .then(res => { variable = res; })
-    .then(res => promisfy(() => datasource.getDetails))
+    .then(res => promisfy(variable.getDetails.bind(variable)))
     .then(debug)
-    .then(res => { details = res; })
-    .then(res => promisfy(() => variable.getValues))
+    .then(res => { variableDetails = res; })
+    .then(res => promisfy(variable.getValues.bind(variable)))
     .then(debug)
     .then(res => { value = res; })
     .then(res => variable.saveValue(newValue))
@@ -116,7 +118,6 @@ function init(req) {
       console.log(data.results);
     });
     */
-
 }
 init({});
 
