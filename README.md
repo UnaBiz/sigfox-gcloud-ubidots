@@ -123,10 +123,24 @@ Create a file named `config.json` in the `sigfox-gcloud-ubidots` folder with the
     The sketch sends 3 field names and field values, packed into a single structured message:
         
     ```
-    ctr (counter)
-    lig (light level)
-    tmp (temperature)        
+    ctr - message counter
+    lig - light level, based on the Grove analog light sensor
+    tmp - module temperature, based on the Sigfox module's embedded temperature sensor        
     ```
+
+1. In Ubidots, create the **Devices / Datasources** for each Sigfox device to be integrated with Ubidots.
+    Name the device / datasource using this format: (change `2C30EB` to your Sigfox device ID)
+    
+    ```
+    Sigfox Device 2C30EB
+    ```
+
+1. For each Ubidots device / datasource, create the **Variables** that will be used to transmit
+    sensor values from the Sigfox device to Ubidots.  For the above example, you may create 3 variables
+    `ctr, lig, tmp` for the Ubidots device `Sigfox Device 2C30EB`.
+    
+    Run the above Arduino-Sigfox sketch and the sensor values will be automatically sent to Ubidots under
+    `Sigfox Device 2C30EB`.
     
 1. Alternatively, you may test by sending a Sigfox message
     from your Sigfox device with the `data` field set to:
