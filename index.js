@@ -40,13 +40,6 @@ let client = null;  //  Ubidots API client.
 //  datasource should be present after init().  variables and details are loaded upon reference to the device.
 const allDevices = {};
 
-function debug(res) {
-  //  Debug the result of a promise.  Return the same promise to the next in chain.
-  console.log(JSON.stringify({ res }, null, 2));
-  debugger;
-  return res;
-}
-
 function promisfy(func) {
   //  Convert the callback-style function in func and return as a promise.
   return new Promise((resolve, reject) =>
@@ -150,10 +143,8 @@ function setVariable(req, device, varname, value) {
   //  Returns a promise.
   const dev = allDevices[device];
   if (!dev || !dev.datasource) return Promise.resolve(null);  //  No such device.
-  const promises = [];
   //  Load the variables if not loaded.
-  if (!dev.variables) promises.push(getVariablesByDevice(req, device));
-  return Promise.all(promises)
+  return getVariablesByDevice(req, device)
     .then(() => {
       //  Fetch the var by name.
       const v = dev.variables[varname];
@@ -165,6 +156,79 @@ function setVariable(req, device, varname, value) {
     .catch((error) => { throw error; });
 }
 
+function init(req) {
+  //  This function is called to initialise the Ubidots API client.
+  //  If already initialised, quit.  Returns a promise for the client.
+  if (client) return Promise.resolve(client);
+  let allDatasources = null;    //  Array of all Ubidots datasources i.e. devices.
+
+  //  Create the Ubidots API client and authenticate with Ubidots.
+  client = ubidots.createClient(apiKey);
+  //  Must bind so that "this" is correct.
+  return promisfy(client.auth.bind(client))
+    .then(() => promisfy(client.getDatasources.bind(client)))
+    .then(res => res.results)
+    .then((res) => {
+      allDatasources = res;
+      processDatasources(req, allDatasources);
+    })
+    .catch((error) => { throw error; });
+}
+
+function task(req, device, body, msg) {
+  //  The task for this Google Cloud Function: Send the body of the
+  //  Sigfox message to Ubidots by calling the Ubidots API.
+  //  We match the Sigfox device ID with the datasources already defined
+  //  in Ubidots, and match the Sigfox message fields with the Ubidots
+  //  variables, and populate the values.  All datasources, variables
+  //  must be created in advance.
+
+  //  Load the Ubidots datasources if not done already.
+  return init(req)
+    //  Load the Ubidots variables for the device if not loaded already.
+    .then(() => getVariablesByDevice(req, device))
+    .then(() => {
+      //  Find the datasource record for the Sigfox device.
+      const dev = allDevices[device];
+      if (!dev || !dev.datasource) return null;  //  No such device.
+
+      //  Set the Ubidots timestamp.
+      //  For each Sigfox message field, set the value of the Ubidots variable.
+      const vars = dev.variables;
+      for (const key of Object.keys(body)) {
+        if (!vars[key]) continue;
+        setVariable(req, device, key, body[key]);
+      }
+      return 'OK';
+    })
+    //  Return the message for the next processing step.
+    .then(() => msg)
+    .catch((error) => { throw error; });
+}
+
+//  End Message Processing Code
+//  //////////////////////////////////////////////////////////////////////////////////////////
+
+//  //////////////////////////////////////////////////////////////////////////////////////////
+//  Main Function
+
+//  When this Google Cloud Function is triggered, we call main() then task().
+exports.main = event => sgcloud.main(event, task);
+
+//  Expose the task function for unit test only.
+exports.task = task;
+
+
+// .then(() => getVariablesByDevice(req, '2C30EB'))
+// .then(() => setVariable(req, '2C30EB', 'lig', 321))
+/*
+function debug(res) {
+  //  Debug the result of a promise.  Return the same promise to the next in chain.
+  console.log(JSON.stringify({ res }, null, 2));
+  debugger;
+  return res;
+}
+ */
 /* Not used: Replicates the datasource already loaded.
 function getDetails(req, device) {
   //  Fetch the Ubidots details for the specified Sigfox device ID.
@@ -183,48 +247,3 @@ function getDetails(req, device) {
     .then((res) => { dev.details = res; return res; })
     .catch((error) => { throw error; });
 } */
-
-function init(req) {
-  //  This function is called to initialise the Ubidots API client.
-  //  If already initialised, quit.  Returns a promise for the client.
-  if (client) return Promise.resolve(client);
-  let allDatasources = null;    //  Array of all Ubidots datasources i.e. devices.
-
-  //  Create the Ubidots API client and authenticate with Ubidots.
-  client = ubidots.createClient(apiKey);
-  //  Must bind so that "this" is correct.
-  return promisfy(client.auth.bind(client))
-    .then(() => promisfy(client.getDatasources.bind(client)))
-    .then(res => res.results)
-    .then(res => {
-      allDatasources = res;
-      processDatasources(req, allDatasources);
-    })
-    // .then(() => getVariablesByDevice(req, '2C30EB'))
-    .then(() => setVariable(req, '2C30EB', 'lig', 321))
-    .then(debug)
-    .catch((error) => { throw error; });
-}
-init({});
-
-function task(req, device, body, msg) {
-  //  The task for this Google Cloud Function: Send the body of the
-  //  Sigfox message to Ubidots by calling the Ubidots API.
-  //  return processMessage(req, body)
-  return Promise.resolve(body) //
-    //  Return the message with the body updated.
-    .then(updatedBody => Object.assign({}, msg, { body: updatedBody }))
-    .catch((error) => { throw error; });
-}
-
-//  End Message Processing Code
-//  //////////////////////////////////////////////////////////////////////////////////////////
-
-//  //////////////////////////////////////////////////////////////////////////////////////////
-//  Main Function
-
-//  When this Google Cloud Function is triggered, we call main() then task().
-exports.main = event => sgcloud.main(event, task);
-
-//  Expose the task function for unit test only.
-exports.task = task;
