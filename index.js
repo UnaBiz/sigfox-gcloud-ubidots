@@ -16,7 +16,7 @@ if (process.env.FUNCTION_NAME) {
 }
 const sgcloud = require('sigfox-gcloud'); //  sigfox-gcloud Framework
 const ubidots = require('ubidots');       //  Ubidots API
-const config = require('../config.json');  //  Ubidots API Key
+const config = require('./config.json');  //  Ubidots API Key
 
 //  End Common Declarations
 //  //////////////////////////////////////////////////////////////////////////////////////////
@@ -24,15 +24,20 @@ const config = require('../config.json');  //  Ubidots API Key
 //  //////////////////////////////////////////////////////////////////////////////////////////
 //  Begin Message Processing Code
 
-const apiKey = config['ubidots-api-key'];
+//  Get the API key from environment or config.json.
+const apiKey = process.env['ubidots-api-key'] || config['ubidots-api-key'];
 if (!apiKey || apiKey.indexOf('YOUR_') === 0) {  //  Halt if we see YOUR_API_KEY.
   throw new Error('ubidots-api-key is missing from config.json');
 }
 let client = null;  //  Ubidots API client.
-let allDatasources = null;  //  Array of all Ubidots data sources e.g. devices.
-let allVariables = null;    //  Array of all Ubidots variables per data source.
 
-function debug(res, func) {
+//  Map Sigfox device ID to Ubidots datasource, variables, details:
+//  '2C30EB' => { datasource: Datasource for "Sigfox Device 2C30EB", variables, details }
+//  datasource should be present after init().  variables and details are loaded upon reference to the device.
+let allDevices = {};
+let allDatasources = null;    //  Array of all Ubidots datasources i.e. devices.
+
+function debug(res) {
   //  Debug the result of a promise.  Return the same promise to the next in chain.
   console.log(JSON.stringify({ res }, null, 2));
   debugger;
@@ -46,9 +51,7 @@ function promisfy(func) {
     .catch((error) => { throw error; });
 }
 
-/* allDatasources contains
-[
-  {
+/* allDatasources contains [{
     "id": "5933e6897625426a4f6efd1b",
     "owner": "http://things.ubidots.com/api/v1.6/users/26539",
     "label": "sigfox-device-2c30eb",
@@ -62,43 +65,89 @@ function promisfy(func) {
     "number_of_variables": 3,
     "last_activity": null,
     "description": null,
-    "position": null
+    "position": null}, ...] */
+
+function processDatasources(req, allDatasources0) {
+  //  Process all the datasources from Ubidots.  Each datasource (e.g. Sigfox Device 2C30EB)
+  //  should correspond to a Sigfox device (e.g. 2C30EB). We index all datasources
+  //  by Sigfox device ID for faster lookup.  Assume all devices names end with
+  //  the 6-char Sigfox device ID.
+  let normalName = '';
+  for (const ds of allDatasources0) {
+    //  Normalise the name to uppercase, hex digits.
+    //  "Sigfox Device 2C30EB" => "FDECE2C30EB"
+    const name = ds.name.toUpperCase();
+    for (let i = 0; i < name.length; i += 1) {
+      const ch = name[i];
+      if (ch < '0' || ch > 'F' || (ch > '9' && ch < 'A')) continue;
+      normalName += ch;
+    }
+    //  Last 5 chars is the Sigfox ID e.g. '2C30EB'.
+    if (normalName.length < 5) {
+      sgcloud.log(req, 'processDatasources', { msg: 'name_too_short', name });
+      continue;
+    }
+    const device = normalName.substring(normalName.length - 6);
+    allDevices[device] = Object.assign({}, allDevices[device], { datasource: ds });
   }
-] */
+}
 
-function processDatasources(req, allDatasources) {
+function getVariables(req, device) {
+  //  Fetch the Ubidots variables for the specified Sigfox device ID.
+  //  Returns a promise.
+  const dev = allDevices[device];
+  if (!dev || !dev.datasource) {
+    return Promise.resolve(null);  //  No such device.
+  }
+  if (dev && dev.variables) {
+    return Promise.resolve(dev.variables);  //  Return cached variables.
+  }
+  //  Given the datasource, read the variables from Ubidots.
+  const datasourceId = dev.datasource.id;
+  const datasource = client.getDatasource(datasourceId);
+  return promisfy(datasource.getVariables.bind(datasource))
+    .then(res => res.results)
+    .then((res) => { dev.variables = res; return res; })
+    .catch((error) => { throw error; });
+}
 
+function getDetails(req, device) {
+  //  Fetch the Ubidots details for the specified Sigfox device ID.
+  //  Returns a promise.
+  const dev = allDevices[device];
+  if (!dev || !dev.datasource) {
+    return Promise.resolve(null);  //  No such device.
+  }
+  if (dev && dev.details) {
+    return Promise.resolve(dev.details);  //  Return cached details.
+  }
+  //  Given the datasource, read the details from Ubidots.
+  const datasourceId = dev.datasource.id;
+  const datasource = client.getDatasource(datasourceId);
+  return promisfy(datasource.getDetails.bind(datasource))
+    .then((res) => { dev.details = res; return res; })
+    .catch((error) => { throw error; });
 }
 
 function init(req) {
   //  This function is called to initialise the Ubidots API client.
   //  If already initialised, quit.  Returns a promise for the client.
   if (client) return Promise.resolve(client);
-  const datasourceName = '???';
-  const variableName = '???';
-  const newValue = 123;
-  let datasource = null;
-  let datasourceDetails = null;
-  let variable = null;
-  let variableDetails = null;
-  let value = null;
 
   //  Create the Ubidots API client and authenticate with Ubidots.
   client = ubidots.createClient(apiKey);
   //  Must bind so that "this" is correct.
   return promisfy(client.auth.bind(client))
-    .then(res => promisfy(client.getDatasources.bind(client)))
-    .then(res => { allDatasources = res.results; })
+    .then(() => promisfy(client.getDatasources.bind(client)))
+    .then(res => res.results)
+    .then(res => {
+      allDatasources = res;
+      processDatasources(req, allDatasources);
+    })
+    .then(() => getVariables(req, '2C30EB'))
+    .then(() => getDetails(req, '2C30EB'))
     .then(debug)
-    .then(res => client.getDatasource(() => datasourceName))
-    .then(debug)
-    .then(res => { datasource = res; })
-    .then(res => promisfy(datasource.getVariables.bind(datasource)))
-    .then(res => { allVariables = res.results; })
-    .then(debug)
-    .then(res => promisfy(datasource.getDetails.bind(datasource)))
-    .then(debug)
-    .then(res => { datasourceDetails = res; })
+    /*
     .then(res => client.getVariable(variableName))
     .then(debug)
     .then(res => { variable = res; })
@@ -110,25 +159,11 @@ function init(req) {
     .then(res => { value = res; })
     .then(res => variable.saveValue(newValue))
     .then(debug)
+    */
     .catch((error) => { throw error; });
 
   /*
    client.auth(() => {
-    this.getDatasources((err, data) => {
-      console.log(data.results);
-      debugger;
-    });
-
-    const ds = this.getDatasource('xxxxxxxx');
-
-    ds.getVariables((err, data) => {
-      console.log(data.results);
-    });
-
-    ds.getDetails((err, details) => {
-      console.log(details);
-    });
-
     const v = this.getVariable('xxxxxxx');
 
     v.getDetails((err, details) => {
