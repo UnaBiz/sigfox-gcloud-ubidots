@@ -16,7 +16,7 @@ if (process.env.FUNCTION_NAME) {
 }
 const sgcloud = require('sigfox-gcloud'); //  sigfox-gcloud Framework
 const ubidots = require('ubidots');       //  Ubidots API
-const config = require('./config.json');  //  Ubidots API Key
+const config = require('../config.json');  //  Ubidots API Key
 
 //  End Common Declarations
 //  //////////////////////////////////////////////////////////////////////////////////////////
@@ -25,7 +25,7 @@ const config = require('./config.json');  //  Ubidots API Key
 //  Begin Message Processing Code
 
 const apiKey = config['ubidots-api-key'];
-if (!apiKey || apiKey.indexOf('YOUR_') === 0) {
+if (!apiKey || apiKey.indexOf('YOUR_') === 0) {  //  Halt if we see YOUR_API_KEY.
   throw new Error('ubidots-api-key is missing from config.json');
 }
 let client = null;  //  Ubidots API client.
@@ -40,7 +40,8 @@ function debug(res) {
 function promisfy(func) {
   //  Convert the callback-style function in func and return as a promise.
   return new Promise((resolve, reject) =>
-    func((err, res) => (err ? reject(err) : resolve(res))));
+    func((err, res) => (err ? reject(err) : resolve(res))))
+    .catch((error) => { throw error; });
 }
 
 function init(req) {
@@ -75,10 +76,10 @@ function init(req) {
     .then(res => promisfy(datasource.getDetails))
     .then(debug)
     .then(res => { details = res; })
-    .then(res => promisfy(v.getValues))
+    .then(res => promisfy(variable.getValues))
     .then(debug)
     .then(res => { values = res; })
-    .then(res => v.saveValue(value))
+    .then(res => variable.saveValue(value))
     .then(debug)
     .catch((error) => { throw error; });
 
@@ -112,7 +113,6 @@ function init(req) {
     });
     */
 
-  });
 }
 init({});
 
