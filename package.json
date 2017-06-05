@@ -1,6 +1,6 @@
 {
   "name": "sigfox-gcloud-ubidots",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "sigfox-gcloud adapter for integrating Sigfox devices with Ubidots",
   "main": "index.js",
   "scripts": {
