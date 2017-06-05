@@ -208,3 +208,8 @@ Create a file named `config.json` in the `sigfox-gcloud-ubidots` folder with the
     lig (light level): 760
     tmp (temperature): 29        
     ```
+
+1. Check this guide on creating a Sigfox device in Ubidots:
+
+    https://docs.google.com/document/d/1CJZQ6HPaZJNbrxcFICmd5lgIMeSzf71WoGG9Dz5XIfk/edit
+    
