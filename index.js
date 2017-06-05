@@ -38,7 +38,10 @@ let client = null;  //  Ubidots API client.
 //      lig: { variable record for 'lig' }, ...
 //  }}
 //  datasource should be present after init().  variables and details are loaded upon reference to the device.
-const allDevices = {};
+let allDevices = null;
+let allDevicesExpiry = null;  //  Expiry timestamp for devices.
+
+const expiry = 30 * 1000;  //  Devices expire in 30 seconds, so they will be auto refreshed from Ubidots.
 
 function promisfy(func) {
   //  Convert the callback-style function in func and return as a promise.
@@ -67,8 +70,9 @@ function processDatasources(req, allDatasources0) {
   //  Process all the datasources from Ubidots.  Each datasource (e.g. Sigfox Device 2C30EB)
   //  should correspond to a Sigfox device (e.g. 2C30EB). We index all datasources
   //  by Sigfox device ID for faster lookup.  Assume all devices names end with
-  //  the 6-char Sigfox device ID.
+  //  the 6-char Sigfox device ID.  Return a map of device IDs to datasource.
   let normalName = '';
+  const result = {};
   for (const ds of allDatasources0) {
     //  Normalise the name to uppercase, hex digits.
     //  "Sigfox Device 2C30EB" => "FDECE2C30EB"
@@ -84,8 +88,9 @@ function processDatasources(req, allDatasources0) {
       continue;
     }
     const device = normalName.substring(normalName.length - 6);
-    allDevices[device] = Object.assign({}, allDevices[device], { datasource: ds });
+    result[device] = Object.assign({}, result[device], { datasource: ds });
   }
+  return result;
 }
 
 /* A variable record looks like: {
@@ -163,19 +168,25 @@ function setVariable(req, device, varname, value) {
 
 function init(req) {
   //  This function is called to initialise the Ubidots API client.
-  //  If already initialised, quit.  Returns a promise for the client.
-  if (client) return Promise.resolve(client);
-  let allDatasources = null;    //  Array of all Ubidots datasources i.e. devices.
+  //  If already initialised and not expired, quit.  Returns a promise for the client.
+  if (client && allDevices && allDevicesExpiry >= Date.now()) return Promise.resolve(client);
+  //  Extend the expiry temporarily so we don't have 2 concurrent requests to fetch the route.
+  if (allDevices) allDevicesExpiry = Date.now() + expiry;
 
   //  Create the Ubidots API client and authenticate with Ubidots.
   client = ubidots.createClient(apiKey);
   //  Must bind so that "this" is correct.
   return promisfy(client.auth.bind(client))
+    //  Get the list of datasources from Ubidots.
     .then(() => promisfy(client.getDatasources.bind(client)))
     .then(res => res.results)
+    //  Convert the datasources to a map of devices.
+    .then(res => processDatasources(req, res))
     .then((res) => {
-      allDatasources = res;
-      processDatasources(req, allDatasources);
+      //  Cache the devices for a while before reloading from Ubidots.
+      allDevices = res;
+      allDevicesExpiry = Date.now() + expiry;
+      return client;
     })
     .catch((error) => { sgcloud.log(req, 'init', { error }); throw error; });
 }
