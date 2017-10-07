@@ -22,6 +22,12 @@ Create a file named `config.json` in the `sigfox-gcloud-ubidots` folder with the
 }
 ```
 
+To use multiple Ubidots accounts, combine the API keys from each account with a comma:
+
+```json
+  "ubidots-api-key": "YOUR_UBIDOTS_API_KEY1,YOUR_UBIDOTS_API_KEY2"
+```
+
 ### Setting up Google Cloud
 
 1.  Install `sigfox-gcloud` with the base modules (exclude optional modules):

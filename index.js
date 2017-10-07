@@ -8,15 +8,16 @@
 
 /* eslint-disable camelcase, no-console, no-nested-ternary, import/no-dynamic-require,
  import/newline-after-import, import/no-unresolved, global-require, max-len */
+//  Enable DNS cache in case we hit the DNS quota for Google Cloud Functions.
+require('dnscache')({ enable: true });
+process.on('uncaughtException', err => console.error(err));  //  Display uncaught exceptions.
 if (process.env.FUNCTION_NAME) {
   //  Load the Google Cloud Trace and Debug Agents before any require().
   //  Only works in Cloud Function.
   require('@google-cloud/trace-agent').start();
   require('@google-cloud/debug-agent').start();
 }
-const sgcloud = require('sigfox-gcloud'); //  sigfox-gcloud Framework
-const ubidots = require('ubidots');       //  Ubidots API
-const config = require('./config.json');  //  Ubidots API Key
+const ubidots = require('ubidots');  //  Ubidots API
 
 //  End Common Declarations
 //  //////////////////////////////////////////////////////////////////////////////////////////
@@ -24,217 +25,308 @@ const config = require('./config.json');  //  Ubidots API Key
 //  //////////////////////////////////////////////////////////////////////////////////////////
 //  Begin Message Processing Code
 
+//  Assume all Sigfox device IDs are 6 letters/digits long.
+const DEVICE_ID_LENGTH = 6;
+
 //  Get the API key from environment or config.json.
-const apiKey = process.env['ubidots-api-key'] || config['ubidots-api-key'];
-if (!apiKey || apiKey.indexOf('YOUR_') === 0) {  //  Halt if we see YOUR_API_KEY.
+//  To store two or more keys, separate by comma.
+const config = require('./config.json');  //  Ubidots API Key
+const keys = process.env['ubidots-api-key'] || config['ubidots-api-key'];
+if (!keys || keys.indexOf('YOUR_') === 0) {  //  Halt if we see YOUR_API_KEY.
   throw new Error('ubidots-api-key is missing from config.json');
 }
-let client = null;  //  Ubidots API client.
+const allKeys = keys.split(',');  //  Array of Ubidots API keys.
 
-//  Map Sigfox device ID to Ubidots datasource, variables:
-//  '2C30EB' => {
+//  Map Sigfox device ID to an array of Ubidots datasource and variables:
+//  allDevices = '2C30EB' => [{
+//    client: Ubidots client used to retrieve the datasource,
 //    datasource: Datasource for "Sigfox Device 2C30EB",
 //    variables: {
 //      lig: { variable record for 'lig' }, ...
-//  }}
-//  datasource should be present after init().  variables and details are loaded upon reference to the device.
+//    }},
+//    //  Repeat the above for other Ubidots clients that have the same device ID.
+//  ]
+//  datasource should be present after init().
+//  variables and details are loaded upon reference to the device.
+//  Each entry is an array, one item per Ubidots client / API key.
 let allDevices = null;
-let allDevicesExpiry = null;  //  Expiry timestamp for devices.
+let allDevicesExpiry = null;  //  Earliest expiry timestamp for all devices.
+let allClients = null;  //  Ubidots API clients for all keys.
 
 const expiry = 30 * 1000;  //  Devices expire in 30 seconds, so they will be auto refreshed from Ubidots.
 
-function promisfy(func) {
-  //  Convert the callback-style function in func and return as a promise.
-  return new Promise((resolve, reject) =>
-    func((err, res) => (err ? reject(err) : resolve(res))))
-    .catch((error) => { throw error; });
-}
+function wrap() {
+  //  Wrap the module into a function so that all Google Cloud resources are properly disposed.
+  const sgcloud = require('sigfox-gcloud'); //  sigfox-gcloud Framework
 
-/* allDatasources contains [{
+  function promisfy(func) {
+    //  Convert the callback-style function in func and return as a promise.
+    return new Promise((resolve, reject) =>
+      func((err, res) => (err ? reject(err) : resolve(res))))
+      .catch((error) => { throw error; });
+  }
+
+  /* allDatasources contains [{
+      "id": "5933e6897625426a4f6efd1b",
+      "owner": "http://things.ubidots.com/api/v1.6/users/26539",
+      "label": "sigfox-device-2c30eb",
+      "parent": null,
+      "name": "Sigfox Device 2C30EB",
+      "url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b",
+      "context": {},
+      "tags": [],
+      "created_at": "2017-06-04T10:52:57.172",
+      "variables_url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b/variables",
+      "number_of_variables": 3,
+      "last_activity": null,
+      "description": null,
+      "position": null}, ...] */
+
+  function processDatasources(req, allDatasources0, client) {
+    //  Process all the datasources from Ubidots.  Each datasource (e.g. Sigfox Device 2C30EB)
+    //  should correspond to a Sigfox device (e.g. 2C30EB). We index all datasources
+    //  by Sigfox device ID for faster lookup.  Assume all devices names end with
+    //  the 6-char Sigfox device ID.  Return a map of device IDs to datasource.
+    let normalName = '';
+    const devices = {};
+    for (const ds of allDatasources0) {
+      //  Normalise the name to uppercase, hex digits.
+      //  "Sigfox Device 2C30EB" => "FDECE2C30EB"
+      const name = ds.name.toUpperCase();
+      for (let i = 0; i < name.length; i += 1) {
+        const ch = name[i];
+        if (ch < '0' || ch > 'F' || (ch > '9' && ch < 'A')) continue;
+        normalName += ch;
+      }
+      //  Last 6 chars is the Sigfox ID e.g. '2C30EB'.
+      if (normalName.length < DEVICE_ID_LENGTH) {
+        sgcloud.log(req, 'processDatasources', { msg: 'name_too_short', name });
+        continue;
+      }
+      const device = normalName.substring(normalName.length - DEVICE_ID_LENGTH);
+      //  Merge the client and datasource into the map of all devices.
+      devices[device] = Object.assign({}, devices[device], { client, datasource: ds });
+    }
+    return devices;
+  }
+
+  /* A variable record looks like: {
+    "id": "5933e6977625426a5efbaaef",
+    "name": "lig",
+    "icon": "cloud-upload",
+    "unit": null,
+    "label": "lig",
+    "datasource": {
     "id": "5933e6897625426a4f6efd1b",
-    "owner": "http://things.ubidots.com/api/v1.6/users/26539",
-    "label": "sigfox-device-2c30eb",
-    "parent": null,
-    "name": "Sigfox Device 2C30EB",
-    "url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b",
-    "context": {},
-    "tags": [],
-    "created_at": "2017-06-04T10:52:57.172",
-    "variables_url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b/variables",
-    "number_of_variables": 3,
-    "last_activity": null,
+      "name": "Sigfox Device 2C30EB",
+      "url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b"
+    },
+    "url": "http://things.ubidots.com/api/v1.6/variables/5933e6977625426a5efbaaef",
     "description": null,
-    "position": null}, ...] */
+    "properties": {},
+    "tags": [],
+    "values_url": "http://things.ubidots.com/api/v1.6/variables/5933e6977625426a5efbaaef/values",
+    "created_at": "2017-06-04T10:53:11.037",
+    "last_value": {},
+    "last_activity": null,
+    "type": 0,
+    "derived_expr": "" } */
 
-function processDatasources(req, allDatasources0) {
-  //  Process all the datasources from Ubidots.  Each datasource (e.g. Sigfox Device 2C30EB)
-  //  should correspond to a Sigfox device (e.g. 2C30EB). We index all datasources
-  //  by Sigfox device ID for faster lookup.  Assume all devices names end with
-  //  the 6-char Sigfox device ID.  Return a map of device IDs to datasource.
-  let normalName = '';
-  const result = {};
-  for (const ds of allDatasources0) {
-    //  Normalise the name to uppercase, hex digits.
-    //  "Sigfox Device 2C30EB" => "FDECE2C30EB"
-    const name = ds.name.toUpperCase();
-    for (let i = 0; i < name.length; i += 1) {
-      const ch = name[i];
-      if (ch < '0' || ch > 'F' || (ch > '9' && ch < 'A')) continue;
-      normalName += ch;
+  function getVariablesByDevice(req, allDevices0, device) {
+    //  Fetch an array of Ubidots variables for the specified Sigfox device ID.
+    //  The array is compiled from all Ubidots clients with the same device ID.
+    //  Each array item is a variables map (name => variable record).
+    //  Returns a promise.
+    const devices = allDevices0[device];
+    if (!devices || !devices[0]) {
+      return Promise.resolve(null);  //  No such device.
     }
-    //  Last 5 chars is the Sigfox ID e.g. '2C30EB'.
-    if (normalName.length < 5) {
-      sgcloud.log(req, 'processDatasources', { msg: 'name_too_short', name });
-      continue;
-    }
-    const device = normalName.substring(normalName.length - 6);
-    result[device] = Object.assign({}, result[device], { datasource: ds });
-  }
-  return result;
-}
-
-/* A variable record looks like: {
-  "id": "5933e6977625426a5efbaaef",
-  "name": "lig",
-  "icon": "cloud-upload",
-  "unit": null,
-  "label": "lig",
-  "datasource": {
-  "id": "5933e6897625426a4f6efd1b",
-    "name": "Sigfox Device 2C30EB",
-    "url": "http://things.ubidots.com/api/v1.6/datasources/5933e6897625426a4f6efd1b"
-  },
-  "url": "http://things.ubidots.com/api/v1.6/variables/5933e6977625426a5efbaaef",
-  "description": null,
-  "properties": {},
-  "tags": [],
-  "values_url": "http://things.ubidots.com/api/v1.6/variables/5933e6977625426a5efbaaef/values",
-  "created_at": "2017-06-04T10:53:11.037",
-  "last_value": {},
-  "last_activity": null,
-  "type": 0,
-  "derived_expr": "" } */
-
-function getVariablesByDevice(req, device) {
-  //  Fetch the Ubidots variables for the specified Sigfox device ID.
-  //  Returns a promise for the variables map (name => variable record).
-  const dev = allDevices[device];
-  if (!dev || !dev.datasource) {
-    return Promise.resolve(null);  //  No such device.
-  }
-  if (dev && dev.variables) {
-    return Promise.resolve(dev.variables);  //  Return cached variables.
-  }
-  //  Given the datasource, read the variables from Ubidots.
-  const datasourceId = dev.datasource.id;
-  const datasource = client.getDatasource(datasourceId);
-  return promisfy(datasource.getVariables.bind(datasource))
-    .then(res => res.results)
-    .then((res) => {
-      //  Index the variables by name.
-      const vars = {};
-      for (const v of res) {
-        const name = v.name;
-        vars[name] = v;
+    //  Load the device ID from each Ubidots client.
+    return Promise.all(devices.map((dev) => {
+      if (dev.variables) {
+        return Promise.resolve(dev.variables);  //  Return cached variables.
       }
-      dev.variables = vars;
-      return vars;
-    })
-    .catch((error) => { sgcloud.log(req, 'getVariablesByDevice', { error, device }); throw error; });
-}
+      //  Given the datasource, read the variables from Ubidots.
+      const client = dev.client;
+      const datasourceId = dev.datasource.id;
+      const datasource = client.getDatasource(datasourceId);
+      return promisfy(datasource.getVariables.bind(datasource))
+        .then(res => res.results)
+        .then((res) => {
+          //  Index the variables by name.
+          const vars = {};
+          for (const v of res) {
+            const name = v.name;
+            vars[name] = v;
+          }
+          Object.assign(dev, { variables: vars });
+          return vars;
+        })
+        .catch((error) => { sgcloud.log(req, 'getVariablesByDevice', { error, device }); throw error; });
+    }))
+      .catch((error) => { sgcloud.log(req, 'getVariablesByDevice', { error, device }); throw error; });
+  }
 
-function setVariable(req, device, varname, value) {
-  //  Set the Ubidots variable for the specified Sigfox device ID.  value looks like
-  //  {"value": "52.1", "timestamp": 1376056359000,
-  //    "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
-  //  Returns a promise.
-  const dev = allDevices[device];
-  if (!dev || !dev.datasource) return Promise.resolve(null);  //  No such device.
-  //  Load the variables if not loaded.
-  return getVariablesByDevice(req, device)
-    .then(() => {
-      //  Fetch the var by name.
-      const v = dev.variables[varname];
-      if (!v) return null;  //  No such variable.
+  function setVariables(req, clientDevice, allValues) {
+    //  Set the Ubidots variables for the specified Ubidots device,
+    //  for a single Ubidots client only.  allValues looks like:
+    //  varname => {"value": "52.1", "timestamp": 1376056359000,
+    //    "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
+    //  Returns a promise.
+    if (!clientDevice) return Promise.resolve(null);  //  No such device.
+    //  Resolve each variable name to variable ID.
+    const allValuesWithID = [];
+    for (const varname of Object.keys(allValues)) {
+      const val = allValues[varname];
+      const v = clientDevice.variables[varname];
+      if (!v) continue;  //  No such variable.
       const varid = v.id;
-      const clientvar = client.getVariable(varid);
-      return new Promise((resolve, reject) =>
-        clientvar.saveValue(value, (err, res) =>
-          (err ? reject(err) : resolve(res))));
-    })
-    .then(result => sgcloud.log(req, 'setVariable', { result, device, varname, value }))
-    .catch((error) => { sgcloud.log(req, 'setVariable', { error, device, varname, value }); throw error; });
-}
-
-function init(req) {
-  //  This function is called to initialise the Ubidots API client.
-  //  If already initialised and not expired, quit.  Returns a promise for the client.
-  if (client && allDevices && allDevicesExpiry >= Date.now()) return Promise.resolve(client);
-  //  Extend the expiry temporarily so we don't have 2 concurrent requests to fetch the route.
-  if (allDevices) allDevicesExpiry = Date.now() + expiry;
-
-  //  Create the Ubidots API client and authenticate with Ubidots.
-  client = ubidots.createClient(apiKey);
-  //  Must bind so that "this" is correct.
-  return promisfy(client.auth.bind(client))
-    //  Get the list of datasources from Ubidots.
-    .then(() => promisfy(client.getDatasources.bind(client)))
-    .then(res => res.results)
-    //  Convert the datasources to a map of devices.
-    .then(res => processDatasources(req, res))
-    .then((res) => {
-      //  Cache the devices for a while before reloading from Ubidots.
-      allDevices = res;
-      allDevicesExpiry = Date.now() + expiry;
-      return client;
-    })
-    .catch((error) => { sgcloud.log(req, 'init', { error }); throw error; });
-}
-
-function task(req, device, body, msg) {
-  //  The task for this Google Cloud Function: Send the body of the
-  //  Sigfox message to Ubidots by calling the Ubidots API.
-  //  We match the Sigfox device ID with the datasources already defined
-  //  in Ubidots, and match the Sigfox message fields with the Ubidots
-  //  variables, and populate the values.  All datasources, variables
-  //  must be created in advance.
-
-  //  Skip duplicate messages.
-  if (body.duplicate === true || body.duplicate === 'true') {
-    return Promise.resolve(msg);
+      allValuesWithID.push(Object.assign({}, val, { variable: varid }));
+    }
+    //  Call the Ubidots API and update multiple variables.
+    //  Note: This setValues API is not exposed in the original Node.js Ubidots library.
+    //  Must use the forked version by UnaBiz.
+    if (allValuesWithID.length === 0) return Promise.resolve(null);  //  No updates.
+    const client = clientDevice.client;
+    return new Promise((resolve, reject) =>
+      client.setValues(allValuesWithID, (err, res) =>
+        (err ? reject(err) : resolve(res))))
+      .then(result => sgcloud.log(req, 'setVariables', { result, clientDevice, allValues }))
+      .catch((error) => { sgcloud.log(req, 'setVariables', { error, clientDevice, allValues }); throw error; });
   }
-  //  Load the Ubidots datasources if not done already.
-  return init(req)
-    //  Load the Ubidots variables for the device if not loaded already.
-    .then(() => getVariablesByDevice(req, device))
-    .then(() => {
-      //  Find the datasource record for the Sigfox device.
-      const dev = allDevices[device];
-      if (!dev || !dev.datasource) {
-        sgcloud.log(req, 'missing_ubidots_device', { device, body, msg });
-        return null;  //  No such device.
-      }
-      //  Set the Ubidots timestamp.
-      //  For each Sigfox message field, set the value of the Ubidots variable.
-      const vars = dev.variables;
-      for (const key of Object.keys(body)) {
-        if (!vars[key]) continue;
-        //  value looks like
-        //  {"value": "52.1", "timestamp": 1376056359000,
-        //    "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
-        const value = {
-          value: body[key],
-          timestamp: parseInt(body.timestamp, 10),  //  Basestation time.
-          context: Object.assign({}, body),  //  Entire message.
-        };
-        if (value.context[key]) delete value.context[key];
-        setVariable(req, device, key, value);
-      }
-      return 'OK';
-    })
-    //  Return the message for the next processing step.
-    .then(() => msg)
-    .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg }); throw error; });
+
+  function loadDevicesByClient(req, client) {
+    //  Preload the Ubidots Devices / Datasources for the Ubidots client.
+    //  Returns a promise for the map of devices.
+
+    //  Must bind so that "this" is correct.
+    return promisfy(client.auth.bind(client))
+      //  Get the list of datasources from Ubidots.
+      .then(() => promisfy(client.getDatasources.bind(client)))
+      .then(res => res.results)
+      //  Convert the datasources to a map of devices.
+      .then(res => processDatasources(req, res, client))
+      .catch((error) => { sgcloud.log(req, 'loadDevicesByClient', { error }); throw error; });
+  }
+
+  function mergeDevices(req, devicesArray) {
+    //  devicesArray contains an array of device maps e.g.
+    //    devicesArray[0] = { deviceID1: device1, deviceID2: device2, ... }
+    //  Return a map of device IDs to the array of devices with the same ID.
+    //    { deviceID1: [ device1, ... ], ... }
+
+    //  Get a list of device IDs, includes duplicates.
+    const allDeviceIDs = devicesArray.reduce((merged, devices) =>
+      merged.concat(Object.keys(devices)), []);
+
+    //  For each device ID, map it to the list of devices for that ID.
+    return allDeviceIDs.reduce((merged, deviceID) => {
+      //  If this device ID is duplicate, skip it.
+      if (merged[deviceID]) return merged;
+      //  For the same device ID, concat the devices from all clients into an array.
+      const newMerged = Object.assign({}, merged);
+      newMerged[deviceID] = devicesArray.reduce((concat, devices) =>
+          devices[deviceID]  //  Concat non-null devices.
+            ? concat.concat([devices[deviceID]])
+            : concat,
+        []);
+      return newMerged;
+    }, {});
+  }
+
+  function loadAllDevices(req, apiKeys) {
+    //  Load the devices for the specified Ubidots API keys,
+    //  when multiple Ubidots accounts / API keys are provided.
+    //  If already loaded and not expired, return the previously loaded devices.
+    //  Returns a promise for the map of device IDs to array of devices for the ID:
+    //    { deviceID1: [ device1, ... ], ... }
+    if (allDevices && allDevicesExpiry >= Date.now()) {
+      return Promise.resolve(allDevices);
+    }
+    //  Extend the expiry temporarily so we don't have 2 concurrent requests to fetch the route.
+    allDevicesExpiry = Date.now() + expiry;
+    //  Create the Ubidots client for each Ubidots API key.
+    if (!allClients) {
+      allClients = apiKeys.map(key => ubidots.createClient(key));
+    }
+    //  Load the devices for each Ubidots client.
+    return Promise.all(allClients.map(
+      client => loadDevicesByClient(req, client)
+    ))
+      .then((resArray) => {
+        //  Consolidate the array of devices by client and cache it.
+        allDevices = mergeDevices(req, resArray);
+        return allDevices;
+      })
+      .catch((error) => { sgcloud.log(req, 'loadAllDevices', { error }); throw error; });
+  }
+
+  function task(req, device, body, msg) {
+    //  The task for this Google Cloud Function: Record the body of the
+    //  Sigfox message in Ubidots by calling the Ubidots API.
+    //  We match the Sigfox device ID with the datasources already defined
+    //  in Ubidots, match the Sigfox message fields with the Ubidots
+    //  variables, and populate the values.  All datasources, variables
+    //  must be created in advance.  If the device ID exists in multiple
+    //  Ubidots accounts, all Ubidots accounts will be updated.
+
+    //  Skip duplicate messages.
+    if (body.duplicate === true || body.duplicate === 'true') {
+      return Promise.resolve(msg);
+    }
+    let allDevices0 = null;
+    //  Load the Ubidots datasources if not already loaded.
+    return loadAllDevices(req, allKeys)
+      .then((res) => { allDevices0 = res; })
+      //  Load the Ubidots variables for the device if not loaded already.
+      .then(() => getVariablesByDevice(req, allDevices0, device))
+      .then(() => {
+        //  Find all Ubidots clients and datasource records for the Sigfox device.
+        const devices = allDevices0[device];
+        if (!devices || !devices[0]) {
+          sgcloud.log(req, 'missing_ubidots_device', { device, body, msg });
+          return null;  //  No such device.
+        }
+        //  Update the datasource record for each Ubidots client.
+        return Promise.all(devices.map((dev) => {
+          //  For each Sigfox message field, set the value of the Ubidots variable.
+          const vars = dev.variables;
+          const allValues = {};  //  All vars to be set.
+          for (const key of Object.keys(vars)) {
+            if (!body[key]) continue;
+            //  value looks like
+            //  {"value": "52.1", "timestamp": 1376056359000,
+            //    "context": {"lat": 6.1, "lng": -35.1, "status": "driving"}}'
+            const value = {
+              value: body[key],
+              timestamp: parseInt(body.timestamp, 10),  //  Basestation time.
+              context: Object.assign({}, body),  //  Entire message.
+            };
+            if (value.context[key]) delete value.context[key];
+            allValues[key] = value;
+          }
+          //  Set multiple variables with a single Ubidots API call.
+          return setVariables(req, dev, allValues);
+        }))
+          .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg }); throw error; });
+      })
+      //  Return the message for the next processing step.
+      .then(() => msg)
+      .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg }); throw error; });
+  }
+
+  return {
+    //  Expose these functions outside of the wrapper.
+    //  When this Google Cloud Function is triggered, we call main() which calls task().
+    serveQueue: event => sgcloud.main(event, task),
+
+    //  For unit test only.
+    task,
+    loadDevicesByClient,
+    getVariablesByDevice,
+    setVariables,
+    mergeDevices,
+  };
 }
 
 //  End Message Processing Code
@@ -243,38 +335,28 @@ function task(req, device, body, msg) {
 //  //////////////////////////////////////////////////////////////////////////////////////////
 //  Main Function
 
-//  When this Google Cloud Function is triggered, we call main() then task().
-exports.main = event => sgcloud.main(event, task);
+module.exports = {
+  //  Expose these functions to be called by Google Cloud Function.
 
-//  Expose the task function for unit test only.
-exports.task = task;
+  main: (event) => {
+    //  Create a wrapper and serve the PubSub event.
+    let wrapper = wrap();
+    return wrapper.serveQueue(event)
+      .then((result) => {
+        wrapper = null;  //  Dispose the wrapper and all resources inside.
+        return result;
+      })
+      .catch((error) => {
+        wrapper = null;  //  Dispose the wrapper and all resources inside.
+        return error;  //  Suppress the error or Google Cloud will call the function again.
+      });
+  },
 
-
-// .then(() => getVariablesByDevice(req, '2C30EB'))
-// .then(() => setVariable(req, '2C30EB', 'lig', 321))
-/*
-function debug(res) {
-  //  Debug the result of a promise.  Return the same promise to the next in chain.
-  console.log(JSON.stringify({ res }, null, 2));
-  debugger;
-  return res;
-}
- */
-/* Not used: Replicates the datasource already loaded.
-function getDetails(req, device) {
-  //  Fetch the Ubidots details for the specified Sigfox device ID.
-  //  Returns a promise.
-  const dev = allDevices[device];
-  if (!dev || !dev.datasource) {
-    return Promise.resolve(null);  //  No such device.
-  }
-  if (dev && dev.details) {
-    return Promise.resolve(dev.details);  //  Return cached details.
-  }
-  //  Given the datasource, read the details from Ubidots.
-  const datasourceId = dev.datasource.id;
-  const datasource = client.getDatasource(datasourceId);
-  return promisfy(datasource.getDetails.bind(datasource))
-    .then((res) => { dev.details = res; return res; })
-    .catch((error) => { throw error; });
-} */
+  //  For unit test only.
+  task: wrap().task,
+  loadDevicesByClient: wrap().loadDevicesByClient,
+  getVariablesByDevice: wrap().getVariablesByDevice,
+  setVariables: wrap().setVariables,
+  mergeDevices: wrap().mergeDevices,
+  allKeys,
+};
