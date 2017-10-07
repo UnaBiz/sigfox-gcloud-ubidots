@@ -1,4 +1,4 @@
 {
   "comment": "Configuration file for Ubidots adapter for sigfox-gcloud",
-  "ubidots-api-key": "63653a55ebdb064512e35ec9071d85692539a0b5"
+  "ubidots-api-key": "YOUR_UBIDOTS_API_KEY"
 }
