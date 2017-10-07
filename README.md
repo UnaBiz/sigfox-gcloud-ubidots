@@ -217,5 +217,5 @@ To use multiple Ubidots accounts, combine the API keys from each account with a 
 
 1. Check this guide on creating a Sigfox device in Ubidots:
 
-    https://docs.google.com/document/d/1CJZQ6HPaZJNbrxcFICmd5lgIMeSzf71WoGG9Dz5XIfk/edit
+    https://unabiz.github.io/unashield/ubidots
     
