@@ -10,7 +10,7 @@
  import/newline-after-import, import/no-unresolved, global-require, max-len */
 //  Enable DNS cache in case we hit the DNS quota for Google Cloud Functions.
 require('dnscache')({ enable: true });
-process.on('uncaughtException', err => console.error(err));  //  Display uncaught exceptions.
+process.on('uncaughtException', err => console.error(err.message, err.stack));  //  Display uncaught exceptions.
 if (process.env.FUNCTION_NAME) {
   //  Load the Google Cloud Trace and Debug Agents before any require().
   //  Only works in Cloud Function.
