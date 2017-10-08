@@ -37,6 +37,19 @@ if (!keys || keys.indexOf('YOUR_') === 0) {  //  Halt if we see YOUR_API_KEY.
 }
 const allKeys = keys.split(',');  //  Array of Ubidots API keys.
 
+//  Read the list of lat/lng fields to be renamed.
+let latFields = null;
+let lngFields = null;
+if (config.lat && config.lng
+  && typeof config.lat === 'string'
+  && typeof config.lng === 'string'
+  && config.lat.trim().length > 0
+  && config.lng.trim().length > 0
+) {
+  latFields = config.lat.trim().split(',').map(s => s.trim());
+  lngFields = config.lng.trim().split(',').map(s => s.trim());
+}
+
 //  Map Sigfox device ID to an array of Ubidots datasource and variables:
 //  allDevices = '2C30EB' => [{
 //    client: Ubidots client used to retrieve the datasource,
@@ -261,7 +274,36 @@ function wrap() {
       .catch((error) => { sgcloud.log(req, 'loadAllDevices', { error }); throw error; });
   }
 
-  function task(req, device, body, msg) {
+  function transformBody(req, body0) {
+    //  Rename lat/lng to baseStationLat/baseStationLng. This is the original
+    //  truncated lat/lng provided by Sigfox.  If config file contains
+    //    lat=latfield1,latfield2,...
+    //    lng=lngfield1,lngfield2,...
+    //  Then rename latfield1/lngfield1 to lat/lng, latfield2/lngfield2 to lat/lng
+    //  whichever occurs first. Ubidots will only render a point on the map
+    //  when lat/lng appears in the context. See
+    //  https://ubidots.com/docs/api/#send-values-to-one-variable
+    const body = Object.assign({}, body0);
+    if (body.lat) { body.baseStationLat = body.lat; delete body.lat; }
+    if (body.lng) { body.baseStationLng = body.lng; delete body.lng; }
+    if (!latFields || !lngFields) return body;
+
+    //  Search for latfield1,lngfield1 then latfield2,lngfield2, ...
+    const len = Math.min(latFields.length, lngFields.length);
+    for (let i = 0; i < len; i += 1) {
+      const latField = latFields[i];
+      const lngField = lngFields[i];
+      if (latField.length === 0 || lngField.length === 0) continue;
+      if (!body[latField] || !body[lngField]) continue;
+      //  Found the lat and lng fields.  Copy them to lat/lng and exit.
+      body.lat = body[latField];
+      body.lng = body[lngField];
+      break;
+    }
+    return body;
+  }
+
+  function task(req, device, body0, msg) {
     //  The task for this Google Cloud Function: Record the body of the
     //  Sigfox message in Ubidots by calling the Ubidots API.
     //  We match the Sigfox device ID with the datasources already defined
@@ -271,11 +313,14 @@ function wrap() {
     //  Ubidots accounts, all Ubidots accounts will be updated.
 
     //  Skip duplicate messages.
-    if (body.duplicate === true || body.duplicate === 'true') {
+    if (body0.duplicate === true || body0.duplicate === 'true') {
       return Promise.resolve(msg);
     }
-    let allDevices0 = null;
+    //  Transform the lat/lng in the message.
+    const body = transformBody(req, body0);
+
     //  Load the Ubidots datasources if not already loaded.
+    let allDevices0 = null;
     return loadAllDevices(req, allKeys)
       .then((res) => { allDevices0 = res; })
       //  Load the Ubidots variables for the device if not loaded already.

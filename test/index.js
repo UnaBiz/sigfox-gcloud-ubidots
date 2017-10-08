@@ -30,6 +30,8 @@ const testData = {  //  Structured msgs with numbers and text fields.
   text: '8013e569a0138c15c013f929',
 };
 const testBody = (timestamp, device, data) => ({
+  deviceLat: 1.303224739957452,
+  deviceLng: 103.86088826178306,
   data,
   ctr: 123,
   lig: 456,
