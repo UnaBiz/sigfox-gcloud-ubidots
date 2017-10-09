@@ -37,7 +37,7 @@
     "json-stringify-safe": "^5.0.1",
     "node-fetch": "^1.6.3",
     "safe-buffer": "5.0.1",
-    "sigfox-gcloud": ">=0.0.36",
+    "sigfox-gcloud": ">=0.0.37",
     "ubidots": "UnaBiz/ubidots-node"
   },
   "devDependencies": {
