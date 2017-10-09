@@ -113,7 +113,7 @@ function wrap() {
       }
       //  Last 6 chars is the Sigfox ID e.g. '2C30EB'.
       if (normalName.length < DEVICE_ID_LENGTH) {
-        sgcloud.log(req, 'processDatasources', { msg: 'name_too_short', name });
+        sgcloud.log(req, 'processDatasources', { msg: 'name_too_short', name, device: req.device });
         continue;
       }
       const device = normalName.substring(normalName.length - DEVICE_ID_LENGTH);
@@ -204,8 +204,8 @@ function wrap() {
     return new Promise((resolve, reject) =>
       client.setValues(allValuesWithID, (err, res) =>
         (err ? reject(err) : resolve(res))))
-      .then(result => sgcloud.log(req, 'setVariables', { result, clientDevice, allValues }))
-      .catch((error) => { sgcloud.log(req, 'setVariables', { error, clientDevice, allValues }); throw error; });
+      .then(result => sgcloud.log(req, 'setVariables', { result, clientDevice, allValues, device: req.device }))
+      .catch((error) => { sgcloud.log(req, 'setVariables', { error, clientDevice, allValues, device: req.device }); throw error; });
   }
 
   function loadDevicesByClient(req, client) {
@@ -219,7 +219,7 @@ function wrap() {
       .then(res => res.results)
       //  Convert the datasources to a map of devices.
       .then(res => processDatasources(req, res, client))
-      .catch((error) => { sgcloud.log(req, 'loadDevicesByClient', { error }); throw error; });
+      .catch((error) => { sgcloud.log(req, 'loadDevicesByClient', { error, device: req.device }); throw error; });
   }
 
   function mergeDevices(req, devicesArray) {
@@ -271,7 +271,7 @@ function wrap() {
         allDevices = mergeDevices(req, resArray);
         return allDevices;
       })
-      .catch((error) => { sgcloud.log(req, 'loadAllDevices', { error }); throw error; });
+      .catch((error) => { sgcloud.log(req, 'loadAllDevices', { error, device: req.device }); throw error; });
   }
 
   function transformBody(req, body0) {
@@ -317,6 +317,7 @@ function wrap() {
       return Promise.resolve(msg);
     }
     //  Transform the lat/lng in the message.
+    Object.assign(req, { device });
     const body = transformBody(req, body0);
 
     //  Load the Ubidots datasources if not already loaded.
