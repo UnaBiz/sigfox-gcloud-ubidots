@@ -3,6 +3,12 @@
 Sigfox server with Google Cloud Functions and Google Cloud PubSub 
 message queues
 
+# Releases
+
+- **Version 1.0.0** (11 Oct 2017): Supports **Google Cloud Trace** for tracing the Sigfox Callback processing time
+  across Cloud Functions.  Supports **Google Cloud Debug** for capturing Node.js memory snapshots.
+  Supports **Ubidots map visualisation** of Sigfox Geolocation and other geolocated sensor data points.
+
 # Getting Started
 
 Download this source folder to your computer.  For development
