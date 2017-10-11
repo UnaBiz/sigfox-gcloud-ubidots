@@ -1,4 +1,6 @@
 {
   "comment": "Configuration file for Ubidots adapter for sigfox-gcloud",
-  "ubidots-api-key": "YOUR_UBIDOTS_API_KEY"
+  "ubidots-api-key": "YOUR_UBIDOTS_API_KEY",
+  "lat": "deviceLat,geolocLat",
+  "lng": "deviceLng,geolocLng"
 }
