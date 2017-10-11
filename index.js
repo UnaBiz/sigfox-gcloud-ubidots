@@ -62,7 +62,7 @@ if (config.lat && config.lng
 //  datasource should be present after init().
 //  variables and details are loaded upon reference to the device.
 //  Each entry is an array, one item per Ubidots client / API key.
-let allDevices = null;
+let allDevicesPromise = null;
 let allDevicesExpiry = null;  //  Earliest expiry timestamp for all devices.
 let allClients = null;  //  Ubidots API clients for all keys.
 
@@ -204,8 +204,8 @@ function wrap() {
     return new Promise((resolve, reject) =>
       client.setValues(allValuesWithID, (err, res) =>
         (err ? reject(err) : resolve(res))))
-      .then(result => sgcloud.log(req, 'setVariables', { result, clientDevice, allValues, device: req.device }))
-      .catch((error) => { sgcloud.log(req, 'setVariables', { error, clientDevice, allValues, device: req.device }); throw error; });
+      .then(result => sgcloud.log(req, 'setVariables', { result, allValues, device: req.device }))
+      .catch((error) => { sgcloud.log(req, 'setVariables', { error, allValues, device: req.device }); throw error; });
   }
 
   function loadDevicesByClient(req, client) {
@@ -253,8 +253,8 @@ function wrap() {
     //  If already loaded and not expired, return the previously loaded devices.
     //  Returns a promise for the map of device IDs to array of devices for the ID:
     //    { deviceID1: [ device1, ... ], ... }
-    if (allDevices && allDevicesExpiry >= Date.now()) {
-      return Promise.resolve(allDevices);
+    if (allDevicesPromise && allDevicesExpiry >= Date.now()) {
+      return allDevicesPromise;
     }
     //  Extend the expiry temporarily so we don't have 2 concurrent requests to fetch the route.
     allDevicesExpiry = Date.now() + expiry;
@@ -263,18 +263,16 @@ function wrap() {
       allClients = apiKeys.map(key => ubidots.createClient(key));
     }
     //  Load the devices for each Ubidots client.
-    return Promise.all(allClients.map(
-      client => loadDevicesByClient(req, client)
-    ))
-      .then((resArray) => {
-        //  Consolidate the array of devices by client and cache it.
-        allDevices = mergeDevices(req, resArray);
-        return allDevices;
-      })
+    allDevicesPromise = Promise.all(allClients.map(
+      client => loadDevicesByClient(req, client)))
+      //  Consolidate the array of devices by client and cache it.
+      .then(resArray => mergeDevices(req, resArray))
       .catch((error) => { sgcloud.log(req, 'loadAllDevices', { error, device: req.device }); throw error; });
+    return allDevicesPromise;
   }
 
   function transformBody(req, body0) {
+    //  Transform any lat/lng fields in the body to the Ubidots geopoint format.
     //  Rename lat/lng to baseStationLat/baseStationLng. This is the original
     //  truncated lat/lng provided by Sigfox.  If config file contains
     //    lat=latfield1,latfield2,...
