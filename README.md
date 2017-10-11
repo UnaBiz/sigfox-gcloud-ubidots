@@ -90,49 +90,51 @@ To use multiple Ubidots accounts, combine the API keys from each account with a 
     scripts/deployall.sh
     ```
 
-1.  How it works:
+### How it works
 
-    - Sigfox messages are pushed by the Sigfox Cloud to the Google Cloud Function
-    [`sigfoxCallback`](https://github.com/UnaBiz/sigfox-gcloud/tree/master/sigfoxCallback)          
-    
-    - Cloud Function `sigfoxCallback` delivers the message to PubSub message queue
-      `sigfox.devices.all`, as well as to the device ID and device type queues
-    
-    - Cloud Function 
-      [`routeMessage`](https://github.com/UnaBiz/sigfox-gcloud/tree/master/routeMessage)
-      listens to PubSub message queue 
-      `sigfox.devices.all` and picks up the new message
-    
-    - Cloud Function `routeMessage` assigns a route to the 
-      Sigfox message by reading the `sigfox-route` from the Google Compute Metadata Store. 
-      The route looks like this: 
+[<kbd><img src="https://storage.googleapis.com/unabiz-media/sigfox-gcloud/sigfox-gcloud-arch.svg" width="1024"></kbd>](https://storage.googleapis.com/unabiz-media/sigfox-gcloud/sigfox-gcloud-arch.svg)
 
-      ```
-      decodeStructuredMessage, sendToUbidots
-      ```
+  1. Sigfox messages are pushed by the Sigfox Cloud to the Google Cloud Function
+  [`sigfoxCallback`](https://github.com/UnaBiz/sigfox-gcloud/tree/master/sigfoxCallback)          
+  
+  1. Cloud Function `sigfoxCallback` delivers the message to PubSub message queue
+    `sigfox.devices.all`, as well as to the device ID and device type queues
+  
+  1. Cloud Function 
+    [`routeMessage`](https://github.com/UnaBiz/sigfox-gcloud/tree/master/routeMessage)
+    listens to PubSub message queue 
+    `sigfox.devices.all` and picks up the new message
+  
+  1. Cloud Function `routeMessage` assigns a route to the 
+    Sigfox message by reading the `sigfox-route` from the Google Compute Metadata Store. 
+    The route looks like this: 
 
-    - This route first sends the message to function `decodeStructuredMessage` 
-      via the queue `sigfox.types.decodeStructuredMessage`
+  ```
+  decodeStructuredMessage, sendToUbidots
+  ```
+
+  1. This route first sends the message to function `decodeStructuredMessage` 
+    via the queue `sigfox.types.decodeStructuredMessage`
+    
+  1. `decodeStructuredMessage` contains the logic to decode a compressed message format that we call 
+    **Structured Message Format**.  Within a 12-byte Sigfox message, the Structured Message Format
+     can encode efficiently 3 sensor field values and their sensor field names.
+     
+     For example, the encoded 12-byte message<br>
+        `b0513801a421f0019405a500`<br>
+     contains 3 sensor values (temperature, humidity, altitude) and their field names:<br>
+        `tmp = 31.2, hmd = 49.6, alt = 16.5`       
+             
+  1.  According to `sigfox-route` above, the resulting decoded message is sent next to function 
+     `sendToUbidots` via the queue `sigfox.types.sendToUbidots`          
+
+  1. `sendToUbidots` sends the decoded message to Ubidots by calling the Ubidots API.  
+      It assumes that you have created a device in Ubidots that's named like
+      `Sigfox Device 2C30EB`, where the last 6 letters/digits is the Sigfox device ID.
       
-    - `decodeStructuredMessage` contains the logic to decode a compressed message format that we call 
-      **Structured Message Format**.  Within a 12-byte Sigfox message, the Structured Message Format
-       can encode efficiently 3 sensor field values and their sensor field names.
-       
-       For example, the encoded 12-byte message
-          `b0513801a421f0019405a500`
-       contains 3 sensor values (temperature, humidity, altitude) and their field names:
-          `tmp = 31.2, hmd = 49.6, alt = 16.5`       
-               
-    -  According to `sigfox-route` above, the resulting decoded message is sent next to function 
-       `sendToUbidots` via the queue `sigfox.types.sendToUbidots`          
-
-    - `sendToUbidots` sends the decoded message to Ubidots by calling the Ubidots API.  
-        It assumes that you have created a device in Ubidots that's named like
-        `Sigfox Device 2C30EB`, where the last 6 letters/digits is the Sigfox device ID.
-        
-    - `sendToUbidots` also assumes that you have created variables with the same name as the decoded message fields.
-      For example if you're using this Arduino sketch to send structured sensor data to Sigfox:
-      
+  1. `sendToUbidots` also assumes that you have created variables with the same name as the decoded message fields.
+    For example if you're using this Arduino sketch to send structured sensor data to Sigfox:
+    
       https://github.com/UnaBiz/unabiz-arduino/blob/0b8d20d5b94cbd8ae4453e72471e511a516b030e/examples/send-altitude-structured/send-altitude-structured.ino#L126-L136      
       ```arduino
       Message msg(transceiver);  //  Will contain the structured sensor data.
