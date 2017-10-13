@@ -66,12 +66,12 @@ To use multiple Ubidots accounts, combine the API keys from each account with a 
     https://github.com/UnaBiz/sigfox-gcloud/blob/master/README.md
 
 1. Open a bash command prompt.  For Windows, open "Bash on Ubuntu on Windows."  
-    Create a file named `.env` in the `sigfox-gcloud-data` folder  
+    Create a file named `.env` in the `sigfox-gcloud-ubidots` folder  
     and populate the `GCLOUD_PROJECT` variable with your project ID.
      To do that, you may use this command (change `myproject` to your project ID):
 
     ```bash
-    cd sigfox-gcloud-data
+    cd sigfox-gcloud-ubidots
     echo GCLOUD_PROJECT=myproject >.env
     ```
 
