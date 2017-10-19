@@ -267,7 +267,12 @@ function wrap() {
       client => loadDevicesByClient(req, client)))
       //  Consolidate the array of devices by client and cache it.
       .then(resArray => mergeDevices(req, resArray))
-      .catch((error) => { sgcloud.log(req, 'loadAllDevices', { error, device: req.device }); throw error; });
+      .catch((error) => {
+        //  In case of error, don't cache.
+        allDevicesPromise = null;
+        sgcloud.log(req, 'loadAllDevices', { error, device: req.device });
+        throw error;
+      });
     return allDevicesPromise;
   }
 
