@@ -63,8 +63,13 @@ if (config.lat && config.lng
 //  variables and details are loaded upon reference to the device.
 //  Each entry is an array, one item per Ubidots client / API key.
 let allDevicesPromise = null;
-let allDevicesExpiry = null;  //  Earliest expiry timestamp for all devices.
-let allClients = null;  //  Ubidots API clients for all keys.
+
+//  Cache of devices by Ubidots client.  Each Ubidots client will have one object in this array.
+const clientCache = allKeys.map(apiKey => ({
+  apiKey,     //  API Key for the Ubidots client.
+  expiry: 0,  //  Expiry timestamp for this cache.  Randomised to prevent 2 clients from refreshing at the same time.
+  devicesPromise: Promise.resolve({}),  //  Promise for the map of cached devices.
+}));
 
 const expiry = 30 * 1000;  //  Devices expire in 30 seconds, so they will be auto refreshed from Ubidots.
 
@@ -164,9 +169,13 @@ function wrap() {
       const datasourceId = dev.datasource.id;
       const datasource = client.getDatasource(datasourceId);
       return promisfy(datasource.getVariables.bind(datasource))
-        .then(res => res.results)
+        .then((res) => {
+          if (!res) return null;  //  No variables.
+          return res.results;
+        })
         .then((res) => {
           //  Index the variables by name.
+          if (!res) return {};  //  No variables.
           const vars = {};
           for (const v of res) {
             const name = v.name;
@@ -175,9 +184,9 @@ function wrap() {
           Object.assign(dev, { variables: vars });
           return vars;
         })
-        .catch((error) => { sgcloud.log(req, 'getVariablesByDevice', { error, device }); throw error; });
+        .catch((error) => { sgcloud.error(req, 'getVariablesByDevice', { error, device }); throw error; });
     }))
-      .catch((error) => { sgcloud.log(req, 'getVariablesByDevice', { error, device }); throw error; });
+      .catch((error) => { sgcloud.error(req, 'getVariablesByDevice', { error, device }); throw error; });
   }
 
   function setVariables(req, clientDevice, allValues) {
@@ -205,7 +214,7 @@ function wrap() {
       client.setValues(allValuesWithID, (err, res) =>
         (err ? reject(err) : resolve(res))))
       .then(result => sgcloud.log(req, 'setVariables', { result, allValues, device: req.device }))
-      .catch((error) => { sgcloud.log(req, 'setVariables', { error, allValues, device: req.device }); throw error; });
+      .catch((error) => { sgcloud.error(req, 'setVariables', { error, allValues, device: req.device }); throw error; });
   }
 
   function loadDevicesByClient(req, client) {
@@ -216,10 +225,13 @@ function wrap() {
     return promisfy(client.auth.bind(client))
       //  Get the list of datasources from Ubidots.
       .then(() => promisfy(client.getDatasources.bind(client)))
-      .then(res => res.results)
+      .then((res) => {
+        if (!res) throw new Error('no_datasources');
+        return res.results;
+      })
       //  Convert the datasources to a map of devices.
       .then(res => processDatasources(req, res, client))
-      .catch((error) => { sgcloud.log(req, 'loadDevicesByClient', { error, device: req.device }); throw error; });
+      .catch((error) => { sgcloud.error(req, 'loadDevicesByClient', { error, device: req.device }); throw error; });
   }
 
   function mergeDevices(req, devicesArray) {
@@ -247,30 +259,53 @@ function wrap() {
     }, {});
   }
 
-  function loadAllDevices(req, apiKeys) {
+  function loadCache(req, cache) { /*  eslint-disable no-param-reassign  */
+    //  Load the cache of devices for the specific Ubidots client if it has expired.
+    //  Returns a promise for the map of devices.  Warning: Mutates the cache object.
+    if (cache.devicesPromise && cache.expiry >= Date.now()) {
+      return cache.devicesPromise;
+    }
+    //  Randomise the expiry so we don't fetch 2 clients at the same time.
+    cache.expiry = Date.now() + Math.floor(Math.random() * expiry);
+    const client = ubidots.createClient(cache.apiKey);
+    const prevDevices = cache.devicesPromise;
+    sgcloud.log(req, 'loadCache', { device: req.device, apiKey: `${cache.apiKey.substr(0, 10)}...` });
+    cache.devicesPromise = loadDevicesByClient(req, client)
+      .catch((error) => {
+        sgcloud.error(req, 'loadCache', { error, device: req.device, apiKey: `${cache.apiKey.substr(0, 10)}...` });
+        //  In case of error, return the previous result.
+        return prevDevices;
+      });
+    return cache.devicesPromise;
+  }  /*  eslint-enable no-param-reassign  */
+
+  function loadAllDevices(req) {
     //  Load the devices for the specified Ubidots API keys,
     //  when multiple Ubidots accounts / API keys are provided.
     //  If already loaded and not expired, return the previously loaded devices.
     //  Returns a promise for the map of device IDs to array of devices for the ID:
     //    { deviceID1: [ device1, ... ], ... }
-    if (allDevicesPromise && allDevicesExpiry >= Date.now()) {
+    //  If any cache has not expired, return the previous results.
+    if (allDevicesPromise && !clientCache.find(cache => (cache.expiry <= Date.now()))) {
       return allDevicesPromise;
     }
-    //  Extend the expiry temporarily so we don't have 2 concurrent requests to fetch the route.
-    allDevicesExpiry = Date.now() + expiry;
-    //  Create the Ubidots client for each Ubidots API key.
-    if (!allClients) {
-      allClients = apiKeys.map(key => ubidots.createClient(key));
+    //  Else recache each Ubidots client.
+    const allDevices = [];
+    let promise = Promise.resolve('start');
+    for (const cache of clientCache) {
+      //  Fetch the devices sequentially, not in parallel, so we don't overload Ubidots.
+      promise = promise
+        .then(() => loadCache(req, cache))
+        .then(devices => allDevices.push(devices));
     }
     //  Load the devices for each Ubidots client.
-    allDevicesPromise = Promise.all(allClients.map(
-      client => loadDevicesByClient(req, client)))
+    allDevicesPromise = promise
       //  Consolidate the array of devices by client and cache it.
-      .then(resArray => mergeDevices(req, resArray))
+      .then(() => mergeDevices(req, allDevices))
       .catch((error) => {
         //  In case of error, don't cache.
         allDevicesPromise = null;
-        sgcloud.log(req, 'loadAllDevices', { error, device: req.device });
+        sgcloud.error(req, 'loadAllDevices', { error, device: req.device });
         throw error;
       });
     return allDevicesPromise;
@@ -357,11 +392,11 @@ function wrap() {
           //  Set multiple variables with a single Ubidots API call.
           return setVariables(req, dev, allValues);
         }))
-          .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg }); throw error; });
+          .catch((error) => { sgcloud.error(req, 'task', { error, device, body, msg }); throw error; });
       })
       //  Return the message for the next processing step.
       .then(() => msg)
-      .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg }); throw error; });
+      .catch((error) => { sgcloud.error(req, 'task', { error, device, body, msg }); throw error; });
   }
 
   return {
@@ -391,14 +426,10 @@ module.exports = {
     //  Create a wrapper and serve the PubSub event.
     let wrapper = wrap();
     return wrapper.serveQueue(event)
-      .then((result) => {
-        wrapper = null;  //  Dispose the wrapper and all resources inside.
-        return result;
-      })
-      .catch((error) => {
-        wrapper = null;  //  Dispose the wrapper and all resources inside.
-        return error;  //  Suppress the error or Google Cloud will call the function again.
-      });
+      //  Dispose the wrapper and all resources inside.
+      .then((result) => { wrapper = null; return result; })
+      //  Suppress the error or Google Cloud will call the function again.
+      .catch((error) => { wrapper = null; return error; });
   },
 
   //  For unit test only.

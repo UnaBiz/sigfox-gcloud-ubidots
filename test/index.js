@@ -84,13 +84,29 @@ function getTestMessage(type, device) {
   return testMessage(timestamp, device, testData[type]);
 }
 
+let startReq = null;
+let rootTracePromise = null;
+let rootSpanPromise = null;
+
+function init() {
+  //  Return a request object with root span already initialised.
+  if (startReq) return startReq;
+  startReq = { device: '^', seqNumber: '^' };
+  common.startRootSpan(startReq);
+  rootTracePromise = startReq.rootTracePromise;
+  rootSpanPromise = startReq.rootSpanPromise;
+  return startReq;
+}
+
+init();
+
 describe(moduleName, () => {
   //  Test every exposed function in the module.
 
   beforeEach(() => {
     //  Erase the request object before every test.
     startDebug();
-    req = { unittest: true };
+    req = { unittest: true, rootTracePromise, rootSpanPromise };
   });
 
   it('should load Ubidots devices', () => {
@@ -229,7 +245,7 @@ describe(moduleName, () => {
     ]);
   });
 
-  it('should record Sigfox message in second Ubidots account', () => {
+  it.only('should record Sigfox message in second Ubidots account', () => {
     //  Sending a Sigfox message to Ubidots with the second device ID
     //  should update the sensor values in the second account for Ubidots.
     //  Check manually that the sensor values were updated.
