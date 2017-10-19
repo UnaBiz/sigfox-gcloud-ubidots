@@ -159,16 +159,20 @@ function wrap() {
     if (!devices || !devices[0]) {
       return Promise.resolve(null);  //  No such device.
     }
-    //  Load the device ID from each Ubidots client.
-    return Promise.all(devices.map((dev) => {
+    //  Load the variables from each Ubidots client sequentially, not in parallel.
+    const result = [];
+    let promises = Promise.resolve('start');
+    devices.forEach((dev) => {
       if (dev.variables) {
-        return Promise.resolve(dev.variables);  //  Return cached variables.
+        result.push(dev.variables);  //  Return cached variables.
+        return;
       }
       //  Given the datasource, read the variables from Ubidots.
       const client = dev.client;
       const datasourceId = dev.datasource.id;
       const datasource = client.getDatasource(datasourceId);
-      return promisfy(datasource.getVariables.bind(datasource))
+      promises = promises
+        .then(() => promisfy(datasource.getVariables.bind(datasource)))
         .then((res) => {
           if (!res) return null;  //  No variables.
           return res.results;
@@ -184,9 +188,11 @@ function wrap() {
           Object.assign(dev, { variables: vars });
           return vars;
         })
-        .catch((error) => { sgcloud.error(req, 'getVariablesByDevice', { error, device }); throw error; });
-    }))
-      .catch((error) => { sgcloud.error(req, 'getVariablesByDevice', { error, device }); throw error; });
+        .then((res) => { result.push(res); })
+        //  Suppress the error, continue with the next device.
+        .catch((error) => { sgcloud.error(req, 'getVariablesByDevice', { error, device }); return error; });
+    });
+    return promises.then(() => result);
   }
 
   function setVariables(req, clientDevice, allValues) {
