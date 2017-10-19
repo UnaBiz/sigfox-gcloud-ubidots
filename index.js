@@ -274,6 +274,7 @@ function wrap() {
       .catch((error) => {
         sgcloud.error(req, 'loadCache', { error, device: req.device, apiKey: `${cache.apiKey.substr(0, 10)}...` });
         //  In case of error, return the previous result.
+        cache.devicesPromise = prevDevices;
         return prevDevices;
       });
     return cache.devicesPromise;
@@ -374,6 +375,7 @@ function wrap() {
         //  Update the datasource record for each Ubidots client.
         return Promise.all(devices.map((dev) => {
           //  For each Sigfox message field, set the value of the Ubidots variable.
+          if (!dev || !dev.variables) return null;
           const vars = dev.variables;
           const allValues = {};  //  All vars to be set.
           for (const key of Object.keys(vars)) {
