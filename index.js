@@ -105,6 +105,7 @@ function wrap() {
     //  should correspond to a Sigfox device (e.g. 2C30EB). We index all datasources
     //  by Sigfox device ID for faster lookup.  Assume all devices names end with
     //  the 6-char Sigfox device ID.  Return a map of device IDs to datasource.
+    if (!allDatasources0) return {};
     let normalName = '';
     const devices = {};
     for (const ds of allDatasources0) {
